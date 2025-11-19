@@ -53,6 +53,10 @@ if (!$accessToken) {
 // 5. Store or update shop in DB
 $db = get_db();
 
+// Check if migration columns exist
+$checkColumnsStmt = $db->query("SHOW COLUMNS FROM shops LIKE 'plan_type'");
+$hasNewColumns = $checkColumnsStmt->rowCount() > 0;
+
 // Check if shop already exists
 $checkStmt = $db->prepare('SELECT id, first_installed_at FROM shops WHERE shop_domain = :shop LIMIT 1');
 $checkStmt->execute(['shop' => $shop]);
@@ -60,29 +64,51 @@ $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
 if ($existing) {
     // Update existing shop (reinstall)
-    $stmt = $db->prepare('
-        UPDATE shops 
-        SET access_token = :access_token,
-            installed_at = NOW(),
-            last_reinstalled_at = NOW(),
-            first_installed_at = COALESCE(first_installed_at, NOW())
-        WHERE shop_domain = :shop_domain
-    ');
+    if ($hasNewColumns) {
+        $stmt = $db->prepare('
+            UPDATE shops 
+            SET access_token = :access_token,
+                installed_at = NOW(),
+                last_reinstalled_at = NOW(),
+                first_installed_at = COALESCE(first_installed_at, NOW())
+            WHERE shop_domain = :shop_domain
+        ');
+    } else {
+        // Fallback for old schema
+        $stmt = $db->prepare('
+            UPDATE shops 
+            SET access_token = :access_token,
+                installed_at = NOW()
+            WHERE shop_domain = :shop_domain
+        ');
+    }
     $stmt->execute([
         'shop_domain'  => $shop,
         'access_token' => $accessToken,
     ]);
 } else {
     // New installation
-    $stmt = $db->prepare('
-        INSERT INTO shops (shop_domain, access_token, installed_at, first_installed_at, last_reinstalled_at, plan_type)
-        VALUES (:shop_domain, :access_token, NOW(), NOW(), NOW(), :plan_type)
-    ');
-    $stmt->execute([
-        'shop_domain'  => $shop,
-        'access_token' => $accessToken,
-        'plan_type'   => 'free',
-    ]);
+    if ($hasNewColumns) {
+        $stmt = $db->prepare('
+            INSERT INTO shops (shop_domain, access_token, installed_at, first_installed_at, last_reinstalled_at, plan_type)
+            VALUES (:shop_domain, :access_token, NOW(), NOW(), NOW(), :plan_type)
+        ');
+        $stmt->execute([
+            'shop_domain'  => $shop,
+            'access_token' => $accessToken,
+            'plan_type'   => 'free',
+        ]);
+    } else {
+        // Fallback for old schema
+        $stmt = $db->prepare('
+            INSERT INTO shops (shop_domain, access_token, installed_at)
+            VALUES (:shop_domain, :access_token, NOW())
+        ');
+        $stmt->execute([
+            'shop_domain'  => $shop,
+            'access_token' => $accessToken,
+        ]);
+    }
 }
 
 // 6. Redirect back into embedded app inside shop admin

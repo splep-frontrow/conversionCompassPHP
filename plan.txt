@@ -1,7 +1,7 @@
 test.shopconversionhistory.com
 
 SSH User
-shopconversionhistory-test
+ssh shopconversionhistory-test@63.142.251.129
 bdiGyY0nSDJvJuohEuGG
 
 Below is a clear, implementation-ready plan you can hand directly to CursorAI. It’s broken into phases and gives explicit steps, folder layout, API calls, and code responsibilities—essentially a blueprint for a minimal PHP-based embedded Shopify app that can be privately installed.
