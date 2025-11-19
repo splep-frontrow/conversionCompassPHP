@@ -1,0 +1,93 @@
+<?php
+declare(strict_types=1);
+
+session_start();
+
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../helpers/hmac.php';
+require_once __DIR__ . '/../helpers/ShopifyClient.php';
+
+$query = $_GET;
+
+// 1. Validate required params
+if (!isset($query['shop'], $query['code'], $query['state'], $query['hmac'])) {
+    http_response_code(400);
+    echo "Missing required query parameters.";
+    exit;
+}
+
+$shop  = sanitize_shop_domain($query['shop']);
+$code  = $query['code'];
+$state = $query['state'];
+
+if (!$shop) {
+    http_response_code(400);
+    echo "Invalid shop domain.";
+    exit;
+}
+
+// 2. Verify state
+if (empty($_SESSION['shopify_oauth_state']) || $state !== $_SESSION['shopify_oauth_state']) {
+    http_response_code(400);
+    echo "Invalid OAuth state.";
+    exit;
+}
+
+// 3. Verify HMAC
+if (!verify_shopify_hmac($query, SHOPIFY_API_SECRET)) {
+    http_response_code(400);
+    echo "HMAC validation failed.";
+    exit;
+}
+
+// 4. Exchange code for access token
+$accessToken = ShopifyClient::getAccessToken($shop, $code);
+
+if (!$accessToken) {
+    http_response_code(500);
+    echo "Failed to get access token from Shopify.";
+    exit;
+}
+
+// 5. Store or update shop in DB
+$db = get_db();
+
+// Check if shop already exists
+$checkStmt = $db->prepare('SELECT id, first_installed_at FROM shops WHERE shop_domain = :shop LIMIT 1');
+$checkStmt->execute(['shop' => $shop]);
+$existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+if ($existing) {
+    // Update existing shop (reinstall)
+    $stmt = $db->prepare('
+        UPDATE shops 
+        SET access_token = :access_token,
+            installed_at = NOW(),
+            last_reinstalled_at = NOW(),
+            first_installed_at = COALESCE(first_installed_at, NOW())
+        WHERE shop_domain = :shop_domain
+    ');
+    $stmt->execute([
+        'shop_domain'  => $shop,
+        'access_token' => $accessToken,
+    ]);
+} else {
+    // New installation
+    $stmt = $db->prepare('
+        INSERT INTO shops (shop_domain, access_token, installed_at, first_installed_at, last_reinstalled_at, plan_type)
+        VALUES (:shop_domain, :access_token, NOW(), NOW(), NOW(), :plan_type)
+    ');
+    $stmt->execute([
+        'shop_domain'  => $shop,
+        'access_token' => $accessToken,
+        'plan_type'   => 'free',
+    ]);
+}
+
+// 6. Redirect back into embedded app inside shop admin
+$appUrl = 'https://' . parse_url(SHOPIFY_REDIRECT_URI, PHP_URL_HOST) . '/index.php';
+$redirectUrl = $appUrl . '?shop=' . urlencode($shop);
+
+header('Location: ' . $redirectUrl);
+exit;

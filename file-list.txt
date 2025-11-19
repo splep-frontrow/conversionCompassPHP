@@ -1,0 +1,19 @@
+index.php – main embedded app entry; checks install, fetches shop info, renders the view.
+
+install.php – starts the OAuth flow.
+
+auth/callback.php – completes OAuth (state + HMAC validation, token exchange, DB upsert).
+
+config.php / config.local.example.php – config + secrets (API key, secret, scopes, DB).
+
+db.php – PDO helper.
+
+helpers/ShopifyClient.php – REST + access token helper.
+
+helpers/hmac.php – HMAC + shop domain sanitizer.
+
+views/embedded.php – simple embedded UI + App Bridge title bar, shows shop domain and store name.
+
+migrations.sql – SQL for the shops table.
+
+CURSOR_NOTES.md – a detailed document for Cursor that explains what each file does, how the OAuth flow works, and where to extend things.

@@ -1,0 +1,278 @@
+test.shopconversionhistory.com
+
+SSH User
+shopconversionhistory-test
+bdiGyY0nSDJvJuohEuGG
+
+Below is a clear, implementation-ready plan you can hand directly to CursorAI. It’s broken into phases and gives explicit steps, folder layout, API calls, and code responsibilities—essentially a blueprint for a minimal PHP-based embedded Shopify app that can be privately installed.
+
+---
+
+# **Plan: “Skeleton” Embedded Shopify App (PHP, Private Install) for CursorAI**
+
+## **1. Overall Architecture**
+
+* **App Type:** Custom (unlisted) embedded app using OAuth, loaded inside the Shopify Admin via App Bridge.
+* **Hosting:** Your own VPS running PHP 8+, Apache/Nginx, HTTPS required.
+* **Storage:** A small database table for storing shop tokens (MySQL/Postgres).
+* **Workflows Implemented:**
+
+  * OAuth install flow
+  * Token storage
+  * Embedded Admin experience
+  * Display of logged-in shop + store name
+
+---
+
+# **2. Shopify Setup**
+
+1. Go to **Shopify Partners → Apps → Create App → Custom App** (not listed publicly).
+2. Set the **App URL** and **Redirect URL** (e.g., `https://yourdomain.com/` and `https://yourdomain.com/auth/callback.php`).
+3. Enable **Embedded App**.
+4. Add required **Scopes**:
+
+   * `read_shopify_payments_payouts` (optional example)
+   * At minimum: `read_shopify_payments_accounts` or `read_storefront_renderer` (any minimal scope to permit OAuth).
+5. Ensure **App Bridge** is enabled in settings.
+6. Save credentials:
+
+   * API Key
+   * API Secret
+   * App URL
+   * Redirect URL
+
+You will use these in your PHP config.
+
+---
+
+# **3. Folder Structure (PHP)**
+
+```
+/shopify-app/
+    config.php
+    install.php              → starts OAuth
+    auth/
+        callback.php         → completes OAuth
+    helpers/
+        shopify.php          → API helpers (REST or GraphQL)
+        verifyHmac.php       → security verification
+    views/
+        embedded.php         → simple HTML/JS embedded admin UI
+    index.php                → checks session/token → loads embedded view
+```
+
+---
+
+# **4. Database Table**
+
+**shops**
+| id | shop_domain | access_token | installed_at |
+
+SQL example:
+
+```sql
+CREATE TABLE shops (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    shop_domain VARCHAR(255) UNIQUE NOT NULL,
+    access_token VARCHAR(255) NOT NULL,
+    installed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+# **5. Install Flow**
+
+The app is **not listed**, so you manually generate install URLs per store:
+
+**Install URL format:**
+
+```
+https://{shop}.myshopify.com/admin/oauth/authorize
+    ?client_id=YOUR_API_KEY
+    &scope=read_storefront_renderer
+    &redirect_uri=https://yourdomain.com/auth/callback.php
+    &state={nonce}
+```
+
+**install.php tasks:**
+
+* Validate `shop` parameter
+* Generate `state` nonce and store it in session
+* Redirect the merchant to Shopify OAuth screen
+
+---
+
+# **6. OAuth Callback Flow**
+
+**callback.php tasks:**
+
+1. Validate:
+
+   * `hmac`
+   * `state`
+   * presence of `shop`
+2. Exchange temporary code for a permanent access token:
+
+POST to:
+
+```
+https://{shop}/admin/oauth/access_token
+```
+
+Payload:
+
+```json
+{
+  "client_id": "...",
+  "client_secret": "...",
+  "code": "..."
+}
+```
+
+Response includes:
+
+```json
+{
+  "access_token": "...",
+  "scope": "..."
+}
+```
+
+3. Store the `access_token` and `shop_domain` in DB.
+4. Redirect to the app's main page:
+
+```
+https://yourdomain.com?shop={shop}
+```
+
+---
+
+# **7. Embedded App Behavior**
+
+When loaded in Shopify Admin, Shopify passes a `shop` and an `id_token` (if App Bridge authenticated).
+
+**index.php responsibilities:**
+
+* Require `shop` param
+* Retrieve stored token from DB
+* If not installed → redirect to install.php
+* Load `/views/embedded.php`
+
+---
+
+# **8. Fetching Store Info**
+
+Use the stored access token to fetch the shop’s basic info:
+
+Request:
+
+```
+GET https://{shop}/admin/api/2024-01/shop.json
+```
+
+Headers:
+
+```
+X-Shopify-Access-Token: {token}
+```
+
+Response includes shop name:
+
+```json
+{ "shop": { "name": "Example Store", ... } }
+```
+
+Store name will be displayed in the embedded UI.
+
+---
+
+# **9. Embedded UI (App Bridge + minimal React-free JS)**
+
+`embedded.php`:
+
+* Load Shopify App Bridge script:
+
+```
+<script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+```
+
+* Instantiate App Bridge:
+
+```js
+const app = window['app-bridge'].createApp({
+  apiKey: "YOUR_API_KEY",
+  shopOrigin: new URLSearchParams(window.location.search).get('shop')
+});
+```
+
+* Use a tiny fetch to call a backend endpoint `/helpers/shopify.php?action=shopInfo&shop=...`
+* Render:
+
+  * “Logged in as: {shop}.myshopify.com”
+  * “Store name: {name}”
+
+This produces a minimal validated embedded UI.
+
+---
+
+# **10. Simple API Helper (PHP)**
+
+`shopify.php`:
+
+* Wrap curl calls
+* Inject token
+* Return JSON
+* Example method: `getShopInfo($shop, $token)`
+
+---
+
+# **11. Security Requirements**
+
+* Validate all requests with HMAC during OAuth
+* Only use HTTPS
+* Sanitize incoming GET params (`shop` must match pattern `/[a-z0-9-]+\.myshopify\.com/`)
+* Validate App Bridge session tokens when needed
+
+---
+
+# **12. Private Installation Mechanics**
+
+Because the app is a **Custom App**, not listed:
+
+* You can provide merchants a direct install link by sending them:
+
+  ```
+  https://{theirshop}.myshopify.com/admin/oauth/authorize?...your params...
+  ```
+* They install it manually.
+* It will appear in their Admin under “Apps,” but **it will not appear in the Shopify App Store**.
+
+---
+
+# **13. Optional Enhancements**
+
+* Add automatic reauthorization if token expires (rare for private apps)
+* Add session tokens via App Bridge Auth
+* Add logging for install events
+
+---
+
+# **14. What CursorAI Should Produce**
+
+CursorAI should generate:
+
+1. Boilerplate PHP code for each file.
+2. A Dockerfile or simple deployment notes for your VPS.
+3. A .env-based config loader.
+4. A minimal HTML/JS embedded view.
+5. A small PHP class for Shopify REST API calls.
+6. A secure OAuth + HMAC implementation.
+
+---
+
+If you’d like, I can turn this into:
+✔ a ready-to-run code scaffold
+✔ a single .zip structure with PHP files
+✔ a fully working OAuth implementation
+✔ a Cursor “task list” with step-by-step coding tasks

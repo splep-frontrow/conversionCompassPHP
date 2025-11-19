@@ -1,0 +1,135 @@
+<?php
+require_once __DIR__ . '/../config.php';
+
+class ShopifyClient
+{
+    public static function getAccessToken(string $shop, string $code): ?string
+    {
+        $url = "https://{$shop}/admin/oauth/access_token";
+
+        $payload = [
+            'client_id'     => SHOPIFY_API_KEY,
+            'client_secret' => SHOPIFY_API_SECRET,
+            'code'          => $code,
+        ];
+
+        $response = self::curl($url, 'POST', $payload, [
+            'Content-Type: application/json',
+        ]);
+
+        if ($response['status'] !== 200) {
+            return null;
+        }
+
+        $body = json_decode($response['body'], true);
+        return $body['access_token'] ?? null;
+    }
+
+    public static function apiRequest(string $shop, string $accessToken, string $path, string $method = 'GET', ?array $data = null): array
+    {
+        $url = "https://{$shop}{$path}";
+
+        $headers = [
+            'X-Shopify-Access-Token: ' . $accessToken,
+            'Content-Type: application/json',
+            'Accept: application/json',
+        ];
+
+        $response = self::curl($url, $method, $data, $headers);
+
+        $decoded = json_decode($response['body'], true);
+        return [
+            'status' => $response['status'],
+            'body'   => $decoded,
+            'raw'    => $response['body'],
+        ];
+    }
+
+    /**
+     * Create a recurring application charge
+     */
+    public static function createRecurringCharge(string $shop, string $accessToken, float $amount, string $planType): array
+    {
+        $name = $planType === 'annual' ? 'Annual Subscription' : 'Monthly Subscription';
+        
+        $payload = [
+            'recurring_application_charge' => [
+                'name'       => $name,
+                'price'      => $amount,
+                'return_url' => 'https://' . parse_url(SHOPIFY_REDIRECT_URI, PHP_URL_HOST) . '/subscription.php?shop=' . urlencode($shop),
+                'test'       => false, // Set to true for development stores
+            ],
+        ];
+
+        return self::apiRequest($shop, $accessToken, '/admin/api/2024-01/recurring_application_charges.json', 'POST', $payload);
+    }
+
+    /**
+     * Get the status of a charge
+     */
+    public static function getChargeStatus(string $shop, string $accessToken, string $chargeId): array
+    {
+        return self::apiRequest($shop, $accessToken, "/admin/api/2024-01/recurring_application_charges/{$chargeId}.json", 'GET');
+    }
+
+    /**
+     * Cancel a recurring charge
+     */
+    public static function cancelCharge(string $shop, string $accessToken, string $chargeId): array
+    {
+        return self::apiRequest($shop, $accessToken, "/admin/api/2024-01/recurring_application_charges/{$chargeId}.json", 'DELETE');
+    }
+
+    private static function curl(string $url, string $method = 'GET', ?array $data = null, array $headers = []): array
+    {
+        $ch = curl_init();
+
+        if ($method === 'GET' && !empty($data)) {
+            $query = http_build_query($data);
+            $url   = $url . (str_contains($url, '?') ? '&' : '?') . $query;
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER         => true,
+            CURLOPT_FOLLOWLOCATION => true,
+        ]);
+
+        if ($method === 'POST' || $method === 'PUT' || $method === 'DELETE') {
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+            if (!empty($data)) {
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+            }
+        }
+
+        if (!empty($headers)) {
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        }
+
+        $response = curl_exec($ch);
+
+        if ($response === false) {
+            $error = curl_error($ch);
+            curl_close($ch);
+            return [
+                'status' => 0,
+                'body'   => json_encode(['error' => $error]),
+            ];
+        }
+
+        $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $statusCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        $header = substr($response, 0, $headerSize);
+        $body   = substr($response, $headerSize);
+
+        curl_close($ch);
+
+        return [
+            'status' => $statusCode,
+            'header' => $header,
+            'body'   => $body,
+        ];
+    }
+}
