@@ -351,6 +351,17 @@ if (!$migrationError) {
             </form>
         </div>
 
+        <?php if (!empty($shops)): ?>
+            <div style="background: #e7f5f0; border-left: 3px solid #008060; padding: 12px 16px; margin-bottom: 16px; border-radius: 4px; color: #155724;">
+                Showing <?= count($shops) ?> shop<?= count($shops) !== 1 ? 's' : '' ?>
+            </div>
+        <?php elseif (empty($shops) && !$migrationError): ?>
+            <div style="background: #fff4e5; border-left: 3px solid #f57c00; padding: 16px; margin-bottom: 24px; border-radius: 4px; color: #e65100;">
+                <strong>Info:</strong> No shops found in database. Install the app on a store to see it here.
+            </div>
+        <?php endif; ?>
+
+        <?php if (!$migrationError): ?>
         <table>
             <thead>
                 <tr>
@@ -373,19 +384,30 @@ if (!$migrationError) {
                     </tr>
                 <?php else: ?>
                     <?php foreach ($shops as $shop): ?>
+                        <?php
+                        // Ensure all values are set
+                        $shopDomain = $shop['shop_domain'] ?? 'N/A';
+                        $storeName = $shop['store_name'] ?? 'N/A';
+                        $planType = $shop['plan_type'] ?? 'free';
+                        $planStatus = $shop['plan_status'] ?? 'active';
+                        $firstInstalled = $shop['first_installed_at'] ?? null;
+                        $lastReinstalled = $shop['last_reinstalled_at'] ?? null;
+                        $lastUsed = $shop['last_used_at'] ?? null;
+                        $adminGrantedFree = !empty($shop['admin_granted_free']);
+                        ?>
                         <tr>
-                            <td><code><?= htmlspecialchars($shop['shop_domain'], ENT_QUOTES, 'UTF-8') ?></code></td>
-                            <td><?= htmlspecialchars($shop['store_name'] ?? 'N/A', ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><span class="badge <?= htmlspecialchars($shop['plan_type'] ?? 'free', ENT_QUOTES, 'UTF-8') ?>"><?= ucfirst($shop['plan_type'] ?? 'free') ?></span></td>
-                            <td><span class="badge <?= htmlspecialchars($shop['plan_status'] ?? 'active', ENT_QUOTES, 'UTF-8') ?>"><?= ucfirst($shop['plan_status'] ?? 'active') ?></span></td>
-                            <td><?= $shop['first_installed_at'] ? date('Y-m-d H:i', strtotime($shop['first_installed_at'])) : 'N/A' ?></td>
-                            <td><?= $shop['last_reinstalled_at'] ? date('Y-m-d H:i', strtotime($shop['last_reinstalled_at'])) : 'N/A' ?></td>
-                            <td><?= $shop['last_used_at'] ? date('Y-m-d', strtotime($shop['last_used_at'])) : 'Never' ?></td>
+                            <td><code><?= htmlspecialchars($shopDomain, ENT_QUOTES, 'UTF-8') ?></code></td>
+                            <td><?= htmlspecialchars($storeName, ENT_QUOTES, 'UTF-8') ?></td>
+                            <td><span class="badge <?= htmlspecialchars($planType, ENT_QUOTES, 'UTF-8') ?>"><?= ucfirst($planType) ?></span></td>
+                            <td><span class="badge <?= htmlspecialchars($planStatus, ENT_QUOTES, 'UTF-8') ?>"><?= ucfirst($planStatus) ?></span></td>
+                            <td><?= $firstInstalled ? date('Y-m-d H:i', strtotime($firstInstalled)) : 'N/A' ?></td>
+                            <td><?= $lastReinstalled ? date('Y-m-d H:i', strtotime($lastReinstalled)) : 'N/A' ?></td>
+                            <td><?= $lastUsed ? date('Y-m-d', strtotime($lastUsed)) : 'Never' ?></td>
                             <td>
-                                <?php if (!($shop['admin_granted_free'] ?? false)): ?>
-                                    <button class="btn btn-grant" onclick="grantFree('<?= htmlspecialchars($shop['shop_domain'], ENT_QUOTES, 'UTF-8') ?>')">Grant Free</button>
+                                <?php if (!$adminGrantedFree): ?>
+                                    <button class="btn btn-grant" onclick="grantFree('<?= htmlspecialchars($shopDomain, ENT_QUOTES, 'UTF-8') ?>')">Grant Free</button>
                                 <?php else: ?>
-                                    <button class="btn btn-revoke" onclick="revokeFree('<?= htmlspecialchars($shop['shop_domain'], ENT_QUOTES, 'UTF-8') ?>')">Revoke Free</button>
+                                    <button class="btn btn-revoke" onclick="revokeFree('<?= htmlspecialchars($shopDomain, ENT_QUOTES, 'UTF-8') ?>')">Revoke Free</button>
                                 <?php endif; ?>
                             </td>
                         </tr>
@@ -393,6 +415,7 @@ if (!$migrationError) {
                 <?php endif; ?>
             </tbody>
         </table>
+        <?php endif; ?>
     </div>
 
     <script>
