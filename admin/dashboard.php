@@ -1,6 +1,11 @@
 <?php
 declare(strict_types=1);
 
+// Enable error reporting for debugging (remove in production)
+error_reporting(E_ALL);
+ini_set('display_errors', 0); // Don't display, but log
+ini_set('log_errors', 1);
+
 session_start();
 
 require_once __DIR__ . '/../config.php';
@@ -42,6 +47,7 @@ $stats = [
     'active_plans' => 0,
 ];
 
+// Initialize stats even if there's an error
 if (!$migrationError) {
     try {
         // Build query - check if columns exist first
@@ -94,18 +100,16 @@ if (!$migrationError) {
             FROM shops
         ";
         $statsStmt = $db->query($statsQuery);
-        $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
+        $statsRow = $statsStmt->fetch(PDO::FETCH_ASSOC);
         
-        // Ensure stats array has all keys
-        if (!$stats) {
-            $stats = [
-                'total_installs' => 0,
-                'free_plans' => 0,
-                'monthly_plans' => 0,
-                'annual_plans' => 0,
-                'active_plans' => 0,
-            ];
-        }
+        // Ensure stats array has all keys with proper defaults
+        $stats = [
+            'total_installs' => (int)($statsRow['total_installs'] ?? 0),
+            'free_plans' => (int)($statsRow['free_plans'] ?? 0),
+            'monthly_plans' => (int)($statsRow['monthly_plans'] ?? 0),
+            'annual_plans' => (int)($statsRow['annual_plans'] ?? 0),
+            'active_plans' => (int)($statsRow['active_plans'] ?? 0),
+        ];
         
         // Fetch shop names from Shopify API (non-blocking - set default first)
         foreach ($shops as &$shop) {
@@ -136,6 +140,26 @@ if (!$migrationError) {
     } catch (PDOException $e) {
         $migrationError = "Database query error: " . $e->getMessage();
         $shops = [];
+    }
+}
+
+// Ensure stats always has values (in case of any error)
+if (!isset($stats) || empty($stats)) {
+    $stats = [
+        'total_installs' => count($shops),
+        'free_plans' => 0,
+        'monthly_plans' => 0,
+        'annual_plans' => 0,
+        'active_plans' => 0,
+    ];
+    // Count actual plans from shops array
+    foreach ($shops as $shop) {
+        $planType = $shop['plan_type'] ?? 'free';
+        $planStatus = $shop['plan_status'] ?? 'active';
+        if ($planType === 'free') $stats['free_plans']++;
+        if ($planType === 'monthly') $stats['monthly_plans']++;
+        if ($planType === 'annual') $stats['annual_plans']++;
+        if ($planStatus === 'active') $stats['active_plans']++;
     }
 }
 
@@ -311,23 +335,23 @@ if (!$migrationError) {
         <div class="stats">
             <div class="stat-card">
                 <h3>Total Installs</h3>
-                <div class="value"><?= htmlspecialchars($stats['total_installs'], ENT_QUOTES, 'UTF-8') ?></div>
+                <div class="value"><?= isset($stats['total_installs']) ? (string)(int)$stats['total_installs'] : '0' ?></div>
             </div>
             <div class="stat-card">
                 <h3>Active Plans</h3>
-                <div class="value"><?= htmlspecialchars($stats['active_plans'], ENT_QUOTES, 'UTF-8') ?></div>
+                <div class="value"><?= isset($stats['active_plans']) ? (string)(int)$stats['active_plans'] : '0' ?></div>
             </div>
             <div class="stat-card">
                 <h3>Free Plans</h3>
-                <div class="value"><?= htmlspecialchars($stats['free_plans'], ENT_QUOTES, 'UTF-8') ?></div>
+                <div class="value"><?= isset($stats['free_plans']) ? (string)(int)$stats['free_plans'] : '0' ?></div>
             </div>
             <div class="stat-card">
                 <h3>Monthly Plans</h3>
-                <div class="value"><?= htmlspecialchars($stats['monthly_plans'], ENT_QUOTES, 'UTF-8') ?></div>
+                <div class="value"><?= isset($stats['monthly_plans']) ? (string)(int)$stats['monthly_plans'] : '0' ?></div>
             </div>
             <div class="stat-card">
                 <h3>Annual Plans</h3>
-                <div class="value"><?= htmlspecialchars($stats['annual_plans'], ENT_QUOTES, 'UTF-8') ?></div>
+                <div class="value"><?= isset($stats['annual_plans']) ? (string)(int)$stats['annual_plans'] : '0' ?></div>
             </div>
         </div>
 
@@ -361,7 +385,6 @@ if (!$migrationError) {
             </div>
         <?php endif; ?>
 
-        <?php if (!$migrationError): ?>
         <table>
             <thead>
                 <tr>
@@ -415,7 +438,6 @@ if (!$migrationError) {
                 <?php endif; ?>
             </tbody>
         </table>
-        <?php endif; ?>
     </div>
 
     <script>
