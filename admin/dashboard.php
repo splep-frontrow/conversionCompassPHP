@@ -65,9 +65,9 @@ if (!$migrationError) {
 
         $whereClause = !empty($where) ? 'WHERE ' . implode(' AND ', $where) : '';
 
-        // Get all shops - use COALESCE for columns that might be NULL
+        // Get all shops - include access_token for shop name fetching
         $query = "
-            SELECT id, shop_domain, 
+            SELECT id, shop_domain, access_token,
                    COALESCE(plan_type, 'free') as plan_type,
                    COALESCE(plan_status, 'active') as plan_status,
                    billing_charge_id,
@@ -77,7 +77,7 @@ if (!$migrationError) {
                    COALESCE(admin_granted_free, 0) as admin_granted_free
             FROM shops
             $whereClause
-            ORDER BY COALESCE(first_installed_at, installed_at) DESC
+            ORDER BY installed_at DESC
         ";
         $stmt = $db->prepare($query);
         $stmt->execute($params);
@@ -95,30 +95,47 @@ if (!$migrationError) {
         ";
         $statsStmt = $db->query($statsQuery);
         $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-        $migrationError = "Database query error: " . $e->getMessage();
-    }
-}
-
-// Fetch shop names from Shopify API (cache in session for performance)
-foreach ($shops as &$shop) {
-    try {
-        $tokenStmt = $db->prepare('SELECT access_token FROM shops WHERE shop_domain = :shop LIMIT 1');
-        $tokenStmt->execute(['shop' => $shop['shop_domain']]);
-        $tokenRow = $tokenStmt->fetch(PDO::FETCH_ASSOC);
         
-        if ($tokenRow) {
-            $response = ShopifyClient::apiRequest($shop['shop_domain'], $tokenRow['access_token'], '/admin/api/2024-01/shop.json', 'GET');
-            if ($response['status'] === 200 && isset($response['body']['shop']['name'])) {
-                $shop['store_name'] = $response['body']['shop']['name'];
-            } else {
+        // Ensure stats array has all keys
+        if (!$stats) {
+            $stats = [
+                'total_installs' => 0,
+                'free_plans' => 0,
+                'monthly_plans' => 0,
+                'annual_plans' => 0,
+                'active_plans' => 0,
+            ];
+        }
+        
+        // Fetch shop names from Shopify API (non-blocking - set default first)
+        foreach ($shops as &$shop) {
+            $shop['store_name'] = 'Loading...'; // Default value
+        }
+        unset($shop); // Break reference
+        
+        // Fetch shop names (non-blocking, errors won't stop page rendering)
+        foreach ($shops as &$shop) {
+            try {
+                if (!empty($shop['access_token'])) {
+                    $response = ShopifyClient::apiRequest($shop['shop_domain'], $shop['access_token'], '/admin/api/2024-01/shop.json', 'GET');
+                    if ($response['status'] === 200 && isset($response['body']['shop']['name'])) {
+                        $shop['store_name'] = $response['body']['shop']['name'];
+                    } else {
+                        $shop['store_name'] = 'N/A';
+                    }
+                } else {
+                    $shop['store_name'] = 'N/A';
+                }
+            } catch (Exception $e) {
+                $shop['store_name'] = 'N/A';
+            } catch (Error $e) {
                 $shop['store_name'] = 'N/A';
             }
-        } else {
-            $shop['store_name'] = 'N/A';
         }
-    } catch (Exception $e) {
-        $shop['store_name'] = 'Error';
+        unset($shop); // Break reference
+    } catch (PDOException $e) {
+        $migrationError = "Database query error: " . $e->getMessage();
+        $shops = [];
     }
 }
 
@@ -278,6 +295,16 @@ foreach ($shops as &$shop) {
                     <li>Run the SQL file: <code>migrations_subscriptions.sql</code></li>
                     <li>Refresh this page</li>
                 </ol>
+            </div>
+        <?php endif; ?>
+        
+        <?php if (isset($_GET['debug'])): ?>
+            <div style="background: #fff4e5; border-left: 3px solid #f57c00; padding: 16px; margin-bottom: 24px; border-radius: 4px; color: #e65100;">
+                <strong>Debug Info:</strong><br>
+                Shops found: <?= count($shops) ?><br>
+                <?php if (!empty($shops)): ?>
+                    <pre><?= htmlspecialchars(print_r($shops, true), ENT_QUOTES, 'UTF-8') ?></pre>
+                <?php endif; ?>
             </div>
         <?php endif; ?>
         
