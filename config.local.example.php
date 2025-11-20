@@ -3,7 +3,7 @@
 
 define('SHOPIFY_API_KEY',        'YOUR_REAL_API_KEY');
 define('SHOPIFY_API_SECRET',     'YOUR_REAL_API_SECRET');
-define('SHOPIFY_SCOPES',         'read_products write_application_charges read_application_charges'); // billing scopes added
+define('SHOPIFY_SCOPES',         'write_application_charges read_application_charges read_orders'); // Billing and order conversion data access
 define('SHOPIFY_REDIRECT_URI',   'https://yourdomain.com/auth/callback.php');
 
 // Database (MySQL) connection

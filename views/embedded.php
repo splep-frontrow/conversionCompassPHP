@@ -5,7 +5,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Skeleton Shopify Embedded App</title>
+    <title>Conversion Compass</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
     <!-- Shopify App Bridge -->
@@ -84,32 +84,42 @@
             border-radius: 4px;
             color: #e65100;
         }
-        .subscription-link {
+        .nav-links {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+            flex-wrap: wrap;
+        }
+        .nav-link {
             display: inline-block;
-            margin-top: 12px;
             padding: 8px 16px;
             background: #008060;
             color: white;
             text-decoration: none;
             border-radius: 4px;
             font-size: 0.9rem;
+            transition: background 0.2s;
         }
-        .subscription-link:hover {
+        .nav-link:hover {
             background: #006e52;
+        }
+        .nav-link.secondary {
+            background: #ffffff;
+            color: #008060;
+            border: 1px solid #008060;
+        }
+        .nav-link.secondary:hover {
+            background: #f6f6f7;
         }
     </style>
 </head>
 <body>
 <div class="app">
-    <h1>Skeleton Embedded App</h1>
-    <p>✓ <strong>App is successfully connected!</strong> This app is loaded inside the Shopify Admin and confirms that you are authenticated.</p>
+    <h1>Conversion Compass</h1>
+    <p>✓ <strong>Welcome to Conversion Compass!</strong> Track and analyze your order conversion data with detailed UTM parameter insights.</p>
 
     <div class="meta">
-        <p><strong>Shop domain:</strong> <code><?= htmlspecialchars($shop, ENT_QUOTES, 'UTF-8') ?></code></p>
-        <p><strong>Store name:</strong> <?= htmlspecialchars($shopName, ENT_QUOTES, 'UTF-8') ?></p>
-        <?php if (!empty($shopEmail)): ?>
-            <p><strong>Store email:</strong> <?= htmlspecialchars($shopEmail, ENT_QUOTES, 'UTF-8') ?></p>
-        <?php endif; ?>
+        <p><strong>Store:</strong> <?= htmlspecialchars($shopName, ENT_QUOTES, 'UTF-8') ?></p>
         <p><strong>Plan:</strong> 
             <span class="plan-badge <?= htmlspecialchars($planStatus['plan_type'] ?? 'free', ENT_QUOTES, 'UTF-8') ?> <?= ($planStatus['plan_status'] ?? 'active') === 'cancelled' ? 'cancelled' : '' ?> <?= ($planStatus['plan_status'] ?? 'active') === 'expired' ? 'expired' : '' ?>">
                 <?= strtoupper($planStatus['plan_type'] ?? 'free') ?>
@@ -117,7 +127,6 @@
                 <?= ($planStatus['plan_status'] ?? 'active') === 'expired' ? ' (Expired)' : '' ?>
             </span>
         </p>
-        <p><strong>API Status:</strong> ✓ Successfully fetched store data from Shopify API</p>
     </div>
 
     <?php if (($planStatus['plan_status'] ?? 'active') === 'cancelled' || ($planStatus['plan_status'] ?? 'active') === 'expired'): ?>
@@ -127,12 +136,13 @@
         </div>
     <?php endif; ?>
 
-    <p class="meta">
-        <a href="/subscription.php?shop=<?= urlencode($shop) ?>" class="subscription-link">Manage Subscription</a>
-    </p>
+    <div class="nav-links">
+        <a href="/conversion.php?shop=<?= urlencode($shop) ?>" class="nav-link">View Conversion Data</a>
+        <a href="/subscription.php?shop=<?= urlencode($shop) ?>" class="nav-link secondary">Manage Subscription</a>
+    </div>
 
-    <p class="meta">
-        This is a minimal starting point. Add your own UI and API calls here.
+    <p class="meta" style="margin-top: 24px;">
+        Get started by clicking "View Conversion Data" to see your order conversion statistics with UTM parameters, referrer data, and traffic source categorization.
     </p>
 </div>
 
@@ -155,7 +165,7 @@
             shopOrigin: shop
         });
 
-        TitleBar.create(app, { title: 'Skeleton App' });
+        TitleBar.create(app, { title: 'Conversion Compass' });
     })();
 </script>
 </body>

@@ -9,7 +9,7 @@ if (file_exists(__DIR__ . '/config.local.php')) {
 // Fallback defaults for development. DO NOT use these in production.
 define('SHOPIFY_API_KEY',        'your_api_key_here');
 define('SHOPIFY_API_SECRET',     'your_api_secret_here');
-define('SHOPIFY_SCOPES',         'read_products write_application_charges read_application_charges'); // billing scopes added
+define('SHOPIFY_SCOPES',         'write_application_charges read_application_charges read_orders'); // Billing and order conversion data access
 define('SHOPIFY_REDIRECT_URI',   'https://yourdomain.com/auth/callback.php');
 
 // Database (MySQL) connection

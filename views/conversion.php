@@ -1,0 +1,351 @@
+<?php
+// Variables expected: $shop, $shopName, $planStatus, $orderData, $statistics, $error, $startDate, $endDate, $dateRange
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Conversion Compass - Order Conversion Data</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <!-- Shopify App Bridge -->
+    <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+    <script src="https://unpkg.com/@shopify/app-bridge-utils@3"></script>
+    
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f6f6f7;
+            color: #202223;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        .card {
+            background: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 0 0 1px rgba(63, 63, 68, 0.1), 0 1px 3px 0 rgba(63, 63, 68, 0.15);
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        h1 {
+            font-size: 1.75rem;
+            margin: 0 0 24px 0;
+            font-weight: 600;
+        }
+        h2 {
+            font-size: 1.25rem;
+            margin: 0 0 16px 0;
+            font-weight: 600;
+        }
+        .date-range-selector {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 24px;
+        }
+        .date-btn {
+            padding: 8px 16px;
+            border: 1px solid #c9cccf;
+            background: #ffffff;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        .date-btn:hover {
+            background: #f6f6f7;
+            border-color: #008060;
+        }
+        .date-btn.active {
+            background: #008060;
+            color: white;
+            border-color: #008060;
+        }
+        .custom-dates {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .custom-dates input[type="date"] {
+            padding: 8px 12px;
+            border: 1px solid #c9cccf;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        .custom-dates button {
+            padding: 8px 16px;
+            background: #008060;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .custom-dates button:hover {
+            background: #006e52;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: #f6f6f7;
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .stat-card h3 {
+            margin: 0 0 8px 0;
+            font-size: 0.875rem;
+            color: #6d7175;
+            font-weight: 500;
+        }
+        .stat-card .value {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: #202223;
+        }
+        .referrer-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+        }
+        .referrer-item {
+            padding: 12px;
+            background: #f6f6f7;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .referrer-item .label {
+            font-size: 0.875rem;
+            color: #6d7175;
+            margin-bottom: 4px;
+        }
+        .referrer-item .count {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #202223;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #ffffff;
+        }
+        th {
+            text-align: left;
+            padding: 12px 16px;
+            border-bottom: 2px solid #e1e3e5;
+            font-weight: 600;
+            font-size: 0.875rem;
+            color: #6d7175;
+            background: #f6f6f7;
+        }
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e1e3e5;
+            font-size: 0.9rem;
+        }
+        tr:hover {
+            background: #f6f6f7;
+        }
+        .order-link {
+            color: #008060;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .order-link:hover {
+            text-decoration: underline;
+        }
+        .error {
+            background: #ffebee;
+            border-left: 3px solid #d72c0d;
+            padding: 12px 16px;
+            margin-bottom: 24px;
+            border-radius: 4px;
+            color: #c62828;
+        }
+        .info {
+            background: #e7f5f0;
+            border-left: 3px solid #008060;
+            padding: 12px 16px;
+            margin-bottom: 24px;
+            border-radius: 4px;
+            color: #155724;
+        }
+        .nav-links {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .nav-link {
+            padding: 8px 16px;
+            background: #ffffff;
+            border: 1px solid #c9cccf;
+            border-radius: 4px;
+            text-decoration: none;
+            color: #202223;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        .nav-link:hover {
+            background: #f6f6f7;
+            border-color: #008060;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6d7175;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="nav-links">
+        <a href="/index.php?shop=<?= urlencode($shop) ?>" class="nav-link">Home</a>
+        <a href="/conversion.php?shop=<?= urlencode($shop) ?>" class="nav-link">Conversion Data</a>
+        <a href="/subscription.php?shop=<?= urlencode($shop) ?>" class="nav-link">Subscription</a>
+    </div>
+    
+    <div class="card">
+        <h1>Order Conversion Data</h1>
+        <p>Store: <strong><?= htmlspecialchars($shopName, ENT_QUOTES, 'UTF-8') ?></strong></p>
+        
+        <?php if ($error): ?>
+            <div class="error"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div>
+        <?php endif; ?>
+        
+        <div class="date-range-selector">
+            <a href="?shop=<?= urlencode($shop) ?>&range=24h" class="date-btn <?= $dateRange === '24h' ? 'active' : '' ?>">Last 24 Hours</a>
+            <a href="?shop=<?= urlencode($shop) ?>&range=7d" class="date-btn <?= $dateRange === '7d' ? 'active' : '' ?>">Last 7 Days</a>
+            <a href="?shop=<?= urlencode($shop) ?>&range=14d" class="date-btn <?= $dateRange === '14d' ? 'active' : '' ?>">Last 2 Weeks</a>
+            <a href="?shop=<?= urlencode($shop) ?>&range=30d" class="date-btn <?= $dateRange === '30d' ? 'active' : '' ?>">Last 30 Days</a>
+        </div>
+        
+        <div class="custom-dates">
+            <form method="GET" action="" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                <input type="hidden" name="shop" value="<?= htmlspecialchars($shop, ENT_QUOTES, 'UTF-8') ?>">
+                <label>
+                    Start Date:
+                    <input type="date" name="start_date" value="<?= $startDate ? htmlspecialchars(date('Y-m-d', strtotime($startDate)), ENT_QUOTES, 'UTF-8') : '' ?>" required>
+                </label>
+                <label>
+                    End Date:
+                    <input type="date" name="end_date" value="<?= $endDate ? htmlspecialchars(date('Y-m-d', strtotime($endDate)), ENT_QUOTES, 'UTF-8') : '' ?>" required>
+                </label>
+                <button type="submit">Apply Date Range</button>
+            </form>
+        </div>
+    </div>
+    
+    <?php if ($startDate && $endDate && empty($error)): ?>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total Orders</h3>
+                <div class="value"><?= number_format($statistics['total_orders']) ?></div>
+            </div>
+            <div class="stat-card">
+                <h3>Total Revenue</h3>
+                <div class="value"><?= number_format($statistics['total_revenue'], 2) ?></div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Referrer Summary</h2>
+            <div class="referrer-summary">
+                <div class="referrer-item">
+                    <div class="label">Social Media</div>
+                    <div class="count"><?= $statistics['referrer_summary']['Social Media'] ?></div>
+                </div>
+                <div class="referrer-item">
+                    <div class="label">Direct Links</div>
+                    <div class="count"><?= $statistics['referrer_summary']['Direct Links'] ?></div>
+                </div>
+                <div class="referrer-item">
+                    <div class="label">Email</div>
+                    <div class="count"><?= $statistics['referrer_summary']['Email'] ?></div>
+                </div>
+                <div class="referrer-item">
+                    <div class="label">Other</div>
+                    <div class="count"><?= $statistics['referrer_summary']['Other'] ?></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Order Details</h2>
+            <?php if (empty($orderData)): ?>
+                <div class="info">No orders found for the selected date range.</div>
+            <?php else: ?>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Order #</th>
+                            <th>Date</th>
+                            <th>Total</th>
+                            <th>Campaign</th>
+                            <th>Source</th>
+                            <th>Medium</th>
+                            <th>Referring Site</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($orderData as $order): ?>
+                            <tr>
+                                <td>
+                                    <a href="<?= htmlspecialchars($order['url'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" class="order-link">
+                                        #<?= htmlspecialchars($order['number'], ENT_QUOTES, 'UTF-8') ?>
+                                    </a>
+                                </td>
+                                <td><?= htmlspecialchars($order['date'], ENT_QUOTES, 'UTF-8') ?></td>
+                                <td><?= htmlspecialchars($order['total'], ENT_QUOTES, 'UTF-8') ?></td>
+                                <td><?= htmlspecialchars($order['campaign'], ENT_QUOTES, 'UTF-8') ?></td>
+                                <td><?= htmlspecialchars($order['source'], ENT_QUOTES, 'UTF-8') ?></td>
+                                <td><?= htmlspecialchars($order['medium'], ENT_QUOTES, 'UTF-8') ?></td>
+                                <td><?= htmlspecialchars($order['referring_site'], ENT_QUOTES, 'UTF-8') ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+        </div>
+    <?php elseif (!$startDate || !$endDate): ?>
+        <div class="info">Please select a date range to view conversion data.</div>
+    <?php endif; ?>
+</div>
+
+<script>
+    (function() {
+        var AppBridge = window['app-bridge'];
+        if (!AppBridge) {
+            return;
+        }
+
+        var createApp = AppBridge.createApp;
+        var actions = AppBridge.actions;
+        var TitleBar = actions.TitleBar;
+
+        var params = new URLSearchParams(window.location.search);
+        var shop = params.get('shop');
+
+        var app = createApp({
+            apiKey: "<?= htmlspecialchars(SHOPIFY_API_KEY, ENT_QUOTES, 'UTF-8') ?>",
+            shopOrigin: shop
+        });
+
+        TitleBar.create(app, { title: 'Conversion Compass' });
+    })();
+</script>
+</body>
+</html>
+

@@ -80,6 +80,37 @@ class ShopifyClient
         return self::apiRequest($shop, $accessToken, "/admin/api/2024-01/recurring_application_charges/{$chargeId}.json", 'DELETE');
     }
 
+    /**
+     * Execute a GraphQL query
+     */
+    public static function graphqlQuery(string $shop, string $accessToken, string $query, array $variables = []): array
+    {
+        $url = "https://{$shop}/admin/api/2024-01/graphql.json";
+
+        $payload = [
+            'query' => $query,
+        ];
+
+        if (!empty($variables)) {
+            $payload['variables'] = $variables;
+        }
+
+        $headers = [
+            'X-Shopify-Access-Token: ' . $accessToken,
+            'Content-Type: application/json',
+            'Accept: application/json',
+        ];
+
+        $response = self::curl($url, 'POST', $payload, $headers);
+
+        $decoded = json_decode($response['body'], true);
+        return [
+            'status' => $response['status'],
+            'body'   => $decoded,
+            'raw'    => $response['body'],
+        ];
+    }
+
     private static function curl(string $url, string $method = 'GET', ?array $data = null, array $headers = []): array
     {
         $ch = curl_init();
