@@ -44,6 +44,9 @@ if (empty($accessToken)) {
     exit;
 }
 
+// Log token info for debugging (don't log the actual token!)
+error_log("Loading shop info for {$shop}, token length: " . strlen($accessToken));
+
 // Update daily usage tracking
 SubscriptionHelper::updateUsage($shop);
 

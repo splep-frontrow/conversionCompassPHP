@@ -62,10 +62,15 @@ $accessToken = ShopifyClient::getAccessToken($shop, $code);
 
 if (!$accessToken) {
     http_response_code(500);
-    error_log("Failed to get access token for shop: {$shop}");
-    echo "Failed to get access token from Shopify. Please try again.";
+    error_log("Failed to get access token for shop: {$shop}, code: " . substr($code, 0, 10) . "...");
+    echo "Failed to get access token from Shopify.";
+    echo "<br><small>Please verify your API credentials in config.local.php match your Shopify Partners dashboard.</small>";
+    echo "<br><small>Also ensure the redirect URI matches exactly: " . htmlspecialchars(SHOPIFY_REDIRECT_URI, ENT_QUOTES, 'UTF-8') . "</small>";
     exit;
 }
+
+// Log token length for debugging (don't log the actual token!)
+error_log("Access token obtained for {$shop}, length: " . strlen($accessToken));
 
 // 5. Store or update shop in DB
 $db = get_db();

@@ -18,11 +18,23 @@ class ShopifyClient
         ]);
 
         if ($response['status'] !== 200) {
+            // Log error details for debugging
+            $errorBody = json_decode($response['body'], true);
+            $errorMsg = $errorBody['error_description'] ?? $errorBody['error'] ?? $response['body'];
+            error_log("Failed to get access token for shop {$shop}: HTTP {$response['status']} - {$errorMsg}");
             return null;
         }
 
         $body = json_decode($response['body'], true);
-        return $body['access_token'] ?? null;
+        $accessToken = $body['access_token'] ?? null;
+        
+        if ($accessToken) {
+            error_log("Successfully obtained access token for shop: {$shop}");
+        } else {
+            error_log("Access token not found in response for shop: {$shop}. Response: " . substr($response['body'], 0, 200));
+        }
+        
+        return $accessToken;
     }
 
     public static function apiRequest(string $shop, string $accessToken, string $path, string $method = 'GET', ?array $data = null): array
