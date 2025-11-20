@@ -1,7 +1,8 @@
 <?php
 declare(strict_types=1);
 
-session_start();
+require_once __DIR__ . '/helpers/session.php';
+init_shopify_session();
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers/hmac.php';
@@ -16,6 +17,9 @@ if (!$shop) {
 
 $state = bin2hex(random_bytes(16));
 $_SESSION['shopify_oauth_state'] = $state;
+
+// Ensure session is written before redirect
+session_write_close();
 
 $params = [
     'client_id'    => SHOPIFY_API_KEY,

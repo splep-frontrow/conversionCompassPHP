@@ -1,7 +1,8 @@
 <?php
 declare(strict_types=1);
 
-session_start();
+require_once __DIR__ . '/../helpers/session.php';
+init_shopify_session();
 
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
@@ -27,10 +28,27 @@ if (!$shop) {
     exit;
 }
 
-// 2. Verify state
-if (empty($_SESSION['shopify_oauth_state']) || $state !== $_SESSION['shopify_oauth_state']) {
+// 2. Verify state (with better error message for debugging)
+if (empty($_SESSION['shopify_oauth_state'])) {
     http_response_code(400);
-    echo "Invalid OAuth state.";
+    // Debug info (remove in production)
+    $debugInfo = [
+        'session_id' => session_id(),
+        'session_data' => $_SESSION,
+        'received_state' => $state,
+        'session_save_path' => session_save_path(),
+        'session_status' => session_status(),
+    ];
+    error_log('OAuth state error: ' . json_encode($debugInfo));
+    echo "Invalid OAuth state: Session state not found. Please try installing again.";
+    echo "<br><small>Debug: Session ID = " . htmlspecialchars(session_id()) . "</small>";
+    exit;
+}
+
+if ($state !== $_SESSION['shopify_oauth_state']) {
+    http_response_code(400);
+    error_log('OAuth state mismatch: Expected ' . ($_SESSION['shopify_oauth_state'] ?? 'null') . ', got ' . $state);
+    echo "Invalid OAuth state: State mismatch. Please try installing again.";
     exit;
 }
 
