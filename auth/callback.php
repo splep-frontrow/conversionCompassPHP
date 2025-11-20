@@ -8,6 +8,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../helpers/hmac.php';
 require_once __DIR__ . '/../helpers/ShopifyClient.php';
+require_once __DIR__ . '/../helpers/OAuthStateHelper.php';
 
 $query = $_GET;
 
@@ -28,27 +29,24 @@ if (!$shop) {
     exit;
 }
 
-// 2. Verify state (with better error message for debugging)
-if (empty($_SESSION['shopify_oauth_state'])) {
-    http_response_code(400);
-    // Debug info (remove in production)
-    $debugInfo = [
-        'session_id' => session_id(),
-        'session_data' => $_SESSION,
-        'received_state' => $state,
-        'session_save_path' => session_save_path(),
-        'session_status' => session_status(),
-    ];
-    error_log('OAuth state error: ' . json_encode($debugInfo));
-    echo "Invalid OAuth state: Session state not found. Please try installing again.";
-    echo "<br><small>Debug: Session ID = " . htmlspecialchars(session_id()) . "</small>";
-    exit;
+// 2. Verify state - try database first (more reliable), then fallback to session
+$stateValid = false;
+
+// First, try database storage (works even if sessions fail)
+if (OAuthStateHelper::verifyState($state, $shop)) {
+    $stateValid = true;
+} 
+// Fallback to session (for direct install.php access)
+elseif (!empty($_SESSION['shopify_oauth_state']) && $state === $_SESSION['shopify_oauth_state']) {
+    $stateValid = true;
+    // Clean up session state
+    unset($_SESSION['shopify_oauth_state']);
 }
 
-if ($state !== $_SESSION['shopify_oauth_state']) {
+if (!$stateValid) {
     http_response_code(400);
-    error_log('OAuth state mismatch: Expected ' . ($_SESSION['shopify_oauth_state'] ?? 'null') . ', got ' . $state);
-    echo "Invalid OAuth state: State mismatch. Please try installing again.";
+    error_log('OAuth state verification failed: state=' . $state . ', shop=' . $shop);
+    echo "Invalid OAuth state. Please try installing again.";
     exit;
 }
 
