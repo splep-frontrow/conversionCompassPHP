@@ -93,26 +93,20 @@ query GetOrders(\$first: Int!, \$query: String!, \$after: String) {
           firstVisit {
             landingPage
             referrerUrl
-            utmParameters {
-              campaign
-              source
-              medium
-              content
-            }
+            utmSource
+            utmMedium
+            utmCampaign
+            utmContent
           }
           lastVisit {
             landingPage
             referrerUrl
-            utmParameters {
-              campaign
-              source
-              medium
-              content
-            }
+            utmSource
+            utmMedium
+            utmCampaign
+            utmContent
           }
-          momentsCount {
-            value
-          }
+          momentsCount
         }
       }
     }
@@ -165,14 +159,13 @@ GRAPHQL;
             $referringSite = $parsed['host'] ?? $referrerUrl;
         }
 
-        // Extract UTM parameters from utmParameters object
-        $utmParams = $visit['utmParameters'] ?? null;
-        
+        // Extract UTM parameters - try direct fields first (camelCase)
+        // Shopify GraphQL uses camelCase for field names
         return [
-            'campaign' => $utmParams['campaign'] ?? 'N/A',
-            'source' => $utmParams['source'] ?? 'N/A',
-            'medium' => $utmParams['medium'] ?? 'N/A',
-            'content' => $utmParams['content'] ?? 'N/A',
+            'campaign' => $visit['utmCampaign'] ?? 'N/A',
+            'source' => $visit['utmSource'] ?? 'N/A',
+            'medium' => $visit['utmMedium'] ?? 'N/A',
+            'content' => $visit['utmContent'] ?? 'N/A',
             'referring_site' => $referringSite,
         ];
     }
