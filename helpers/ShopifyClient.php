@@ -38,6 +38,12 @@ class ShopifyClient
         $response = self::curl($url, $method, $data, $headers);
 
         $decoded = json_decode($response['body'], true);
+        
+        // Log API errors for debugging
+        if ($response['status'] !== 200) {
+            error_log("Shopify API Error - Shop: {$shop}, Status: {$response['status']}, Path: {$path}, Response: " . substr($response['body'], 0, 500));
+        }
+        
         return [
             'status' => $response['status'],
             'body'   => $decoded,

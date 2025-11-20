@@ -62,7 +62,8 @@ $accessToken = ShopifyClient::getAccessToken($shop, $code);
 
 if (!$accessToken) {
     http_response_code(500);
-    echo "Failed to get access token from Shopify.";
+    error_log("Failed to get access token for shop: {$shop}");
+    echo "Failed to get access token from Shopify. Please try again.";
     exit;
 }
 
@@ -102,6 +103,12 @@ if ($existing) {
         'shop_domain'  => $shop,
         'access_token' => $accessToken,
     ]);
+    
+    if ($stmt->rowCount() === 0) {
+        error_log("Failed to update shop record for: {$shop}");
+    } else {
+        error_log("Successfully updated shop record for: {$shop}");
+    }
 } else {
     // New installation
     if ($hasNewColumns) {
@@ -125,6 +132,24 @@ if ($existing) {
             'access_token' => $accessToken,
         ]);
     }
+    
+    if ($stmt->rowCount() === 0) {
+        error_log("Failed to insert shop record for: {$shop}");
+    } else {
+        error_log("Successfully inserted shop record for: {$shop}");
+    }
+}
+
+// Verify the token was saved
+$verifyStmt = $db->prepare('SELECT access_token FROM shops WHERE shop_domain = :shop LIMIT 1');
+$verifyStmt->execute(['shop' => $shop]);
+$verifyRow = $verifyStmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$verifyRow || empty($verifyRow['access_token'])) {
+    error_log("CRITICAL: Access token not saved properly for shop: {$shop}");
+    http_response_code(500);
+    echo "Error: Failed to save access token. Please contact support.";
+    exit;
 }
 
 // 6. Redirect back into embedded app inside shop admin

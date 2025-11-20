@@ -37,6 +37,13 @@ if (!$row) {
 
 $accessToken = $row['access_token'];
 
+// Verify access token exists
+if (empty($accessToken)) {
+    http_response_code(500);
+    echo "Error: Access token not found in database. Please reinstall the app.";
+    exit;
+}
+
 // Update daily usage tracking
 SubscriptionHelper::updateUsage($shop);
 
@@ -45,7 +52,25 @@ $response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-01/s
 
 if ($response['status'] !== 200) {
     http_response_code(500);
+    $errorDetails = '';
+    
+    // Extract error message from response
+    if (isset($response['body']['errors'])) {
+        $errorDetails = ' Error: ' . json_encode($response['body']['errors']);
+    } elseif (isset($response['body']['error'])) {
+        $errorDetails = ' Error: ' . $response['body']['error'];
+    } elseif (!empty($response['raw'])) {
+        $errorDetails = ' Response: ' . substr($response['raw'], 0, 200);
+    }
+    
+    error_log("Shopify API error for shop {$shop}: Status {$response['status']}{$errorDetails}");
+    
     echo "Failed to load shop info from Shopify.";
+    echo "<br><small>HTTP Status: {$response['status']}</small>";
+    if ($errorDetails) {
+        echo "<br><small>" . htmlspecialchars($errorDetails) . "</small>";
+    }
+    echo "<br><br><a href='/install.php?shop=" . urlencode($shop) . "'>Try reinstalling the app</a>";
     exit;
 }
 
