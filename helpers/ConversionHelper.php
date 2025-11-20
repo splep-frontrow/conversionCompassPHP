@@ -58,6 +58,10 @@ class ConversionHelper
                 $order = $edge['node'] ?? null;
                 if ($order) {
                     $orders[] = $order;
+                    // Log first order structure for debugging
+                    if (count($orders) === 1) {
+                        error_log("First order structure: " . json_encode(array_keys($order)));
+                    }
                 }
             }
 
@@ -72,6 +76,7 @@ class ConversionHelper
 
     /**
      * Build GraphQL query for orders with conversion data
+     * First version: Simple query to get basic order data
      */
     private static function buildOrdersQuery(): string
     {
@@ -89,25 +94,6 @@ query GetOrders(\$first: Int!, \$query: String!, \$after: String) {
             currencyCode
           }
         }
-        customerJourneySummary {
-          firstVisit {
-            landingPage
-            referrerUrl
-            utmSource
-            utmMedium
-            utmCampaign
-            utmContent
-          }
-          lastVisit {
-            landingPage
-            referrerUrl
-            utmSource
-            utmMedium
-            utmCampaign
-            utmContent
-          }
-          momentsCount
-        }
       }
     }
     pageInfo {
@@ -117,6 +103,16 @@ query GetOrders(\$first: Int!, \$query: String!, \$after: String) {
   }
 }
 GRAPHQL;
+    }
+    
+    /**
+     * Build GraphQL query for orders WITH conversion data
+     * This will be used once we verify the correct field structure
+     */
+    private static function buildOrdersQueryWithConversion(): string
+    {
+        // This will be implemented once we know the correct schema structure
+        return self::buildOrdersQuery();
     }
 
     /**
