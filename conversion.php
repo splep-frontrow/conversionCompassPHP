@@ -104,16 +104,26 @@ $error = null;
 
 if ($startDate && $endDate) {
     try {
-        // Format dates for GraphQL query (extract date part only)
-        $startDateOnly = date('Y-m-d', strtotime($startDate));
-        $endDateOnly = date('Y-m-d', strtotime($endDate));
-        $startDateFormatted = ConversionHelper::formatDateForQuery($startDateOnly);
-        $endDateFormatted = ConversionHelper::formatDateForQuery($endDateOnly);
+        // Format dates for GraphQL query
+        // Shopify expects ISO 8601 format: YYYY-MM-DDTHH:mm:ssZ
+        $startDateFormatted = ConversionHelper::formatDateForQuery($startDate);
+        $endDateFormatted = ConversionHelper::formatDateForQuery($endDate);
+        
+        error_log("Fetching orders for shop {$shop} from {$startDateFormatted} to {$endDateFormatted}");
         
         $orders = ConversionHelper::getOrdersWithConversionData($shop, $accessToken, $startDateFormatted, $endDateFormatted);
         $statistics = ConversionHelper::calculateStatistics($orders);
+        
+        error_log("Retrieved " . count($orders) . " orders, calculated statistics: " . json_encode($statistics));
+        
+        // If no orders found, log more details for debugging
+        if (empty($orders)) {
+            error_log("No orders found for date range. Start: {$startDate} ({$startDateFormatted}), End: {$endDate} ({$endDateFormatted})");
+            $error = 'No orders found for the selected date range. Please check your server error logs for details.';
+        }
     } catch (Exception $e) {
         $error = 'Failed to fetch conversion data: ' . $e->getMessage();
+        error_log("Exception in conversion.php: " . $e->getMessage() . "\n" . $e->getTraceAsString());
     }
 }
 

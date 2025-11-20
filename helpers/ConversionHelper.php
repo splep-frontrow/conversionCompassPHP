@@ -14,25 +14,45 @@ class ConversionHelper
 
         while ($hasNextPage) {
             $query = self::buildOrdersQuery();
+            
+            // Build query string - Shopify uses specific date format
+            // Format: created_at:>=2024-01-01T00:00:00Z created_at:<=2024-01-31T23:59:59Z
+            $queryString = "financial_status:paid created_at:>={$startDate} created_at:<={$endDate}";
+            
             $variables = [
                 'first' => 50,
-                'query' => "financial_status:paid created_at:>={$startDate} created_at:<={$endDate}",
+                'query' => $queryString,
                 'after' => $cursor,
             ];
+            
+            error_log("GraphQL query variables: " . json_encode($variables));
 
             $response = ShopifyClient::graphqlQuery($shop, $accessToken, $query, $variables);
 
             if ($response['status'] !== 200) {
+                error_log("GraphQL query failed: HTTP {$response['status']}, Response: " . substr($response['raw'] ?? '', 0, 500));
+                break;
+            }
+
+            // Check for GraphQL errors
+            if (isset($response['body']['errors'])) {
+                $errorMessages = array_map(function($error) {
+                    return $error['message'] ?? 'Unknown error';
+                }, $response['body']['errors']);
+                error_log("GraphQL errors: " . implode(', ', $errorMessages));
                 break;
             }
 
             $data = $response['body']['data'] ?? null;
             if (!$data || !isset($data['orders'])) {
+                error_log("No orders data in response. Response keys: " . implode(', ', array_keys($response['body'] ?? [])));
                 break;
             }
 
             $ordersData = $data['orders'];
             $edges = $ordersData['edges'] ?? [];
+
+            error_log("Found " . count($edges) . " orders in this page for date range {$startDate} to {$endDate}");
 
             foreach ($edges as $edge) {
                 $order = $edge['node'] ?? null;
@@ -46,6 +66,7 @@ class ConversionHelper
             $cursor = $hasNextPage ? ($pageInfo['endCursor'] ?? null) : null;
         }
 
+        error_log("Total orders retrieved: " . count($orders));
         return $orders;
     }
 
@@ -219,8 +240,13 @@ GRAPHQL;
      */
     public static function formatDateForQuery(string $date): string
     {
-        // Convert Y-m-d to ISO 8601 format
+        // Convert various date formats to ISO 8601 format
+        // Accepts: Y-m-d, Y-m-d H:i:s, or already formatted dates
         $timestamp = strtotime($date);
+        if ($timestamp === false) {
+            error_log("Invalid date format: {$date}");
+            return date('Y-m-d\TH:i:s\Z');
+        }
         return date('Y-m-d\TH:i:s\Z', $timestamp);
     }
 }
