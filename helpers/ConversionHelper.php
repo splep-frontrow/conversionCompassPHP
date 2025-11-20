@@ -39,7 +39,13 @@ class ConversionHelper
                 $errorMessages = array_map(function($error) {
                     return $error['message'] ?? 'Unknown error';
                 }, $response['body']['errors']);
-                error_log("GraphQL errors: " . implode(', ', $errorMessages));
+                $errorString = implode(', ', $errorMessages);
+                error_log("GraphQL errors: " . $errorString);
+                
+                // Check for access denied errors - likely scope issue
+                if (str_contains($errorString, 'Access denied') || str_contains($errorString, 'access denied')) {
+                    error_log("ACCESS DENIED ERROR: App may need to be reinstalled with read_orders scope. Current scopes in config: " . SHOPIFY_SCOPES);
+                }
                 break;
             }
 

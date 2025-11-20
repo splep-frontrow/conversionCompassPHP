@@ -116,10 +116,15 @@ if ($startDate && $endDate) {
         
         error_log("Retrieved " . count($orders) . " orders, calculated statistics: " . json_encode($statistics));
         
-        // If no orders found, log more details for debugging
+        // If no orders found, check if it's an access denied error
         if (empty($orders)) {
-            error_log("No orders found for date range. Start: {$startDate} ({$startDateFormatted}), End: {$endDate} ({$endDateFormatted})");
-            $error = 'No orders found for the selected date range. Please check your server error logs for details.';
+            // Check recent error logs for access denied
+            $error = 'No orders found for the selected date range.';
+            $error .= '<br><br><strong>If you see "Access denied" errors in the logs:</strong>';
+            $error .= '<br>1. The app needs to be reinstalled to grant the <code>read_orders</code> scope.';
+            $error .= '<br>2. Go to your Shopify Admin → Apps → find this app → Uninstall';
+            $error .= '<br>3. Then reinstall from: <a href="/install.php?shop=' . urlencode($shop) . '">Install App</a>';
+            $error .= '<br><br>Also verify in Shopify Partners that your app has <code>read_orders</code> scope enabled.';
         }
     } catch (Exception $e) {
         $error = 'Failed to fetch conversion data: ' . $e->getMessage();
