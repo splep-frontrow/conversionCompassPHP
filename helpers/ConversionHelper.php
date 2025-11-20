@@ -93,20 +93,26 @@ query GetOrders(\$first: Int!, \$query: String!, \$after: String) {
           firstVisit {
             landingPage
             referrerUrl
-            utmSource
-            utmMedium
-            utmCampaign
-            utmContent
+            utmParameters {
+              campaign
+              source
+              medium
+              content
+            }
           }
           lastVisit {
             landingPage
             referrerUrl
-            utmSource
-            utmMedium
-            utmCampaign
-            utmContent
+            utmParameters {
+              campaign
+              source
+              medium
+              content
+            }
           }
-          momentsCount
+          momentsCount {
+            value
+          }
         }
       }
     }
@@ -159,11 +165,14 @@ GRAPHQL;
             $referringSite = $parsed['host'] ?? $referrerUrl;
         }
 
+        // Extract UTM parameters from utmParameters object
+        $utmParams = $visit['utmParameters'] ?? null;
+        
         return [
-            'campaign' => $visit['utmCampaign'] ?? 'N/A',
-            'source' => $visit['utmSource'] ?? 'N/A',
-            'medium' => $visit['utmMedium'] ?? 'N/A',
-            'content' => $visit['utmContent'] ?? 'N/A',
+            'campaign' => $utmParams['campaign'] ?? 'N/A',
+            'source' => $utmParams['source'] ?? 'N/A',
+            'medium' => $utmParams['medium'] ?? 'N/A',
+            'content' => $utmParams['content'] ?? 'N/A',
             'referring_site' => $referringSite,
         ];
     }
