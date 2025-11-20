@@ -4,80 +4,141 @@ require_once __DIR__ . '/ShopifyClient.php';
 class ConversionHelper
 {
     /**
+     * Verify app has required scopes
+     */
+    public static function verifyScopes(string $shop, string $accessToken): array
+    {
+        $query = <<<GRAPHQL
+query VerifyScopes {
+  currentAppInstallation {
+    accessScopes {
+      handle
+    }
+  }
+}
+GRAPHQL;
+        
+        $response = ShopifyClient::graphqlQuery($shop, $accessToken, $query, []);
+        
+        if ($response['status'] === 200 && isset($response['body']['data']['currentAppInstallation']['accessScopes'])) {
+            $scopes = array_map(function($scope) {
+                return $scope['handle'];
+            }, $response['body']['data']['currentAppInstallation']['accessScopes']);
+            error_log("Granted scopes: " . implode(', ', $scopes));
+            return $scopes;
+        }
+        
+        error_log("Failed to verify scopes. Response: " . json_encode($response['body'] ?? []));
+        return [];
+    }
+
+    /**
      * Get orders with conversion data for a date range
      */
     public static function getOrdersWithConversionData(string $shop, string $accessToken, string $startDate, string $endDate): array
     {
-        $orders = [];
-        $hasNextPage = true;
-        $cursor = null;
-
-        while ($hasNextPage) {
+        // First verify scopes
+        $scopes = self::verifyScopes($shop, $accessToken);
+        if (!in_array('read_orders', $scopes)) {
+            error_log("WARNING: read_orders scope not found in granted scopes!");
+        }
+        
+        // Try different query formats
+        $queryStrings = [
+            // Format 1: Full ISO 8601 with T and Z
+            "financial_status:paid created_at:>={$startDate} created_at:<={$endDate}",
+            // Format 2: Date only (no time)
+            "financial_status:paid created_at:>=" . substr($startDate, 0, 10) . " created_at:<=" . substr($endDate, 0, 10),
+            // Format 3: Without date filters (fallback)
+            "financial_status:paid",
+        ];
+        
+        foreach ($queryStrings as $index => $queryString) {
+            error_log("Trying query format " . ($index + 1) . ": {$queryString}");
+            
+            $orders = [];
+            $hasNextPage = true;
+            $cursor = null;
             $query = self::buildOrdersQuery();
             
-            // Build query string - Shopify uses specific date format
-            // Format: created_at:>=2024-01-01T00:00:00Z created_at:<=2024-01-31T23:59:59Z
-            $queryString = "financial_status:paid created_at:>={$startDate} created_at:<={$endDate}";
-            
-            $variables = [
-                'first' => 50,
-                'query' => $queryString,
-                'after' => $cursor,
-            ];
-            
-            error_log("GraphQL query variables: " . json_encode($variables));
-
-            $response = ShopifyClient::graphqlQuery($shop, $accessToken, $query, $variables);
-
-            if ($response['status'] !== 200) {
-                error_log("GraphQL query failed: HTTP {$response['status']}, Response: " . substr($response['raw'] ?? '', 0, 500));
-                break;
-            }
-
-            // Check for GraphQL errors
-            if (isset($response['body']['errors'])) {
-                $errorMessages = array_map(function($error) {
-                    return $error['message'] ?? 'Unknown error';
-                }, $response['body']['errors']);
-                $errorString = implode(', ', $errorMessages);
-                error_log("GraphQL errors: " . $errorString);
+            while ($hasNextPage) {
+                $variables = [
+                    'first' => 50,
+                    'query' => $queryString,
+                    'after' => $cursor,
+                ];
                 
-                // Check for access denied errors - likely scope issue
-                if (str_contains($errorString, 'Access denied') || str_contains($errorString, 'access denied')) {
-                    error_log("ACCESS DENIED ERROR: App may need to be reinstalled with read_orders scope. Current scopes in config: " . SHOPIFY_SCOPES);
+                error_log("GraphQL query variables: " . json_encode($variables));
+
+                $response = ShopifyClient::graphqlQuery($shop, $accessToken, $query, $variables);
+
+                if ($response['status'] !== 200) {
+                    error_log("GraphQL query failed: HTTP {$response['status']}, Response: " . substr($response['raw'] ?? '', 0, 500));
+                    break 2; // Break out of both loops
                 }
-                break;
-            }
 
-            $data = $response['body']['data'] ?? null;
-            if (!$data || !isset($data['orders'])) {
-                error_log("No orders data in response. Response keys: " . implode(', ', array_keys($response['body'] ?? [])));
-                break;
-            }
+                // Check for GraphQL errors
+                if (isset($response['body']['errors'])) {
+                    $errorMessages = array_map(function($error) {
+                        return $error['message'] ?? 'Unknown error';
+                    }, $response['body']['errors']);
+                    $errorString = implode(', ', $errorMessages);
+                    error_log("GraphQL errors: " . $errorString);
+                    
+                    // Check for access denied errors - likely scope issue
+                    if (str_contains($errorString, 'Access denied') || str_contains($errorString, 'access denied')) {
+                        error_log("ACCESS DENIED ERROR: App may need to be reinstalled with read_orders scope. Current scopes in config: " . SHOPIFY_SCOPES);
+                        return []; // Return empty, can't proceed
+                    }
+                    
+                    // If date filter error and not last attempt, try next format
+                    if ($index < count($queryStrings) - 1) {
+                        break; // Try next query format
+                    }
+                    return []; // All formats failed
+                }
 
-            $ordersData = $data['orders'];
-            $edges = $ordersData['edges'] ?? [];
+                $data = $response['body']['data'] ?? null;
+                if (!$data || !isset($data['orders'])) {
+                    error_log("No orders data in response. Response keys: " . implode(', ', array_keys($response['body'] ?? [])));
+                    if ($index < count($queryStrings) - 1) {
+                        break; // Try next format
+                    }
+                    return [];
+                }
 
-            error_log("Found " . count($edges) . " orders in this page for date range {$startDate} to {$endDate}");
+                $ordersData = $data['orders'];
+                $edges = $ordersData['edges'] ?? [];
 
-            foreach ($edges as $edge) {
-                $order = $edge['node'] ?? null;
-                if ($order) {
-                    $orders[] = $order;
-                    // Log first order structure for debugging
-                    if (count($orders) === 1) {
-                        error_log("First order structure: " . json_encode(array_keys($order)));
+                error_log("Found " . count($edges) . " orders in this page");
+
+                foreach ($edges as $edge) {
+                    $order = $edge['node'] ?? null;
+                    if ($order) {
+                        $orders[] = $order;
+                        // Log first order structure for debugging
+                        if (count($orders) === 1) {
+                            error_log("First order structure: " . json_encode(array_keys($order)));
+                            error_log("First order name: " . ($order['name'] ?? 'N/A'));
+                            error_log("First order createdAt: " . ($order['createdAt'] ?? 'N/A'));
+                        }
                     }
                 }
-            }
 
-            $pageInfo = $ordersData['pageInfo'] ?? [];
-            $hasNextPage = $pageInfo['hasNextPage'] ?? false;
-            $cursor = $hasNextPage ? ($pageInfo['endCursor'] ?? null) : null;
+                $pageInfo = $ordersData['pageInfo'] ?? [];
+                $hasNextPage = $pageInfo['hasNextPage'] ?? false;
+                $cursor = $hasNextPage ? ($pageInfo['endCursor'] ?? null) : null;
+            }
+            
+            // If we got orders, return them (even if from fallback query without dates)
+            if (!empty($orders)) {
+                error_log("Total orders retrieved: " . count($orders) . " using query format " . ($index + 1));
+                return $orders;
+            }
         }
 
-        error_log("Total orders retrieved: " . count($orders));
-        return $orders;
+        error_log("No orders found with any query format");
+        return [];
     }
 
     /**
