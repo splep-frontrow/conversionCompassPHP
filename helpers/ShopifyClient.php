@@ -84,27 +84,35 @@ class ShopifyClient
             $retryDelay = 2; // seconds between retries
             $retryCount = 0;
             
-            error_log("401 error on {$apiPath} for shop: {$shop}, starting retry loop (max {$maxRetries} retries)");
+            error_log("401 error on {$apiPath} for shop: {$shop}, retryOn401=true - starting retry loop (max {$maxRetries} retries, {$retryDelay}s delay)");
             
             while ($response['status'] === 401 && $retryCount < $maxRetries) {
                 $retryCount++;
-                error_log("Retry attempt {$retryCount}/{$maxRetries} for shop: {$shop}, waiting {$retryDelay}s...");
+                error_log("Retry attempt {$retryCount}/{$maxRetries} for shop: {$shop}, waiting {$retryDelay}s before retry...");
                 sleep($retryDelay);
                 
                 $response = self::curl($url, $method, $data, $headers);
                 $decoded = json_decode($response['body'], true);
                 
                 if ($response['status'] === 200) {
-                    error_log("Retry successful for shop: {$shop} on attempt {$retryCount}");
+                    error_log("✓ Retry SUCCESSFUL for shop: {$shop} on attempt {$retryCount}/{$maxRetries}");
                     break;
                 } else {
-                    error_log("Retry attempt {$retryCount} failed for shop: {$shop}, status: {$response['status']}");
+                    error_log("✗ Retry attempt {$retryCount}/{$maxRetries} FAILED for shop: {$shop}, status: {$response['status']}");
+                    if ($response['status'] !== 401) {
+                        error_log("  Non-401 error on retry, stopping retry loop");
+                        break;
+                    }
                 }
             }
             
-            if ($response['status'] !== 200) {
-                error_log("All {$maxRetries} retry attempts exhausted for shop: {$shop}, final status: {$response['status']}");
+            if ($response['status'] === 200) {
+                error_log("Final result: SUCCESS after {$retryCount} retry attempt(s) for shop: {$shop}");
+            } else {
+                error_log("Final result: FAILED after {$retryCount} retry attempt(s) for shop: {$shop}, final status: {$response['status']}");
             }
+        } elseif ($response['status'] === 401 && !$retryOn401) {
+            error_log("401 error on {$apiPath} for shop: {$shop}, but retryOn401=false - no retries will be attempted");
         }
         
         return [
