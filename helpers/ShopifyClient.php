@@ -29,7 +29,9 @@ class ShopifyClient
         $accessToken = $body['access_token'] ?? null;
         
         if ($accessToken) {
-            error_log("Successfully obtained access token for shop: {$shop}");
+            // Trim whitespace from token
+            $accessToken = trim($accessToken);
+            error_log("Successfully obtained access token for shop: {$shop}, length: " . strlen($accessToken));
         } else {
             error_log("Access token not found in response for shop: {$shop}. Response: " . substr($response['body'], 0, 200));
         }
@@ -39,6 +41,18 @@ class ShopifyClient
 
     public static function apiRequest(string $shop, string $accessToken, string $path, string $method = 'GET', ?array $data = null): array
     {
+        // Trim token to ensure no whitespace issues
+        $accessToken = trim($accessToken);
+        
+        if (empty($accessToken)) {
+            error_log("ERROR: Empty access token provided for API request to shop: {$shop}, path: {$path}");
+            return [
+                'status' => 401,
+                'body'   => ['error' => 'Access token is empty'],
+                'raw'    => 'Access token is empty',
+            ];
+        }
+        
         $url = "https://{$shop}{$path}";
 
         $headers = [

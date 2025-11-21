@@ -35,7 +35,17 @@ if (!$row) {
     exit;
 }
 
-$accessToken = $row['access_token'];
+$accessToken = trim($row['access_token'] ?? '');
+
+// Verify access token exists
+if (empty($accessToken)) {
+    error_log("ERROR: Empty access token retrieved for shop: {$shop} in subscription.php");
+    http_response_code(500);
+    echo "Error: Access token not found in database. Please reinstall the app.";
+    echo "<br><br><a href='/install.php?shop=" . urlencode($shop) . "'>Reinstall the app</a>";
+    exit;
+}
+
 $planStatus = SubscriptionHelper::getPlanStatus($shop);
 
 // Handle charge creation

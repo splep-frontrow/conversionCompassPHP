@@ -35,12 +35,14 @@ if (!$row) {
     exit;
 }
 
-$accessToken = $row['access_token'];
+$accessToken = trim($row['access_token'] ?? '');
 
 // Verify access token exists
 if (empty($accessToken)) {
+    error_log("ERROR: Empty access token retrieved for shop: {$shop}");
     http_response_code(500);
     echo "Error: Access token not found in database. Please reinstall the app.";
+    echo "<br><br><a href='/install.php?shop=" . urlencode($shop) . "'>Reinstall the app</a>";
     exit;
 }
 
@@ -67,6 +69,18 @@ if ($response['status'] !== 200) {
     }
     
     error_log("Shopify API error for shop {$shop}: Status {$response['status']}{$errorDetails}");
+    error_log("Token info: length=" . strlen($accessToken) . ", first_chars=" . substr($accessToken, 0, 5) . "...");
+    
+    // If it's a 401, the token is likely invalid - clear it and force reinstall
+    if ($response['status'] === 401) {
+        error_log("401 error detected - clearing invalid token for shop: {$shop}");
+        try {
+            $clearStmt = $db->prepare('UPDATE shops SET access_token = NULL WHERE shop_domain = :shop');
+            $clearStmt->execute(['shop' => $shop]);
+        } catch (Exception $e) {
+            error_log("Failed to clear invalid token: " . $e->getMessage());
+        }
+    }
     
     echo "Failed to load shop info from Shopify.";
     echo "<br><small>HTTP Status: {$response['status']}</small>";

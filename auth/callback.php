@@ -69,6 +69,16 @@ if (!$accessToken) {
     exit;
 }
 
+// Trim whitespace from token (important!)
+$accessToken = trim($accessToken);
+
+if (empty($accessToken)) {
+    http_response_code(500);
+    error_log("Access token is empty after trimming for shop: {$shop}");
+    echo "Error: Received empty access token from Shopify. Please try installing again.";
+    exit;
+}
+
 // Log token length for debugging (don't log the actual token!)
 error_log("Access token obtained for {$shop}, length: " . strlen($accessToken));
 
@@ -145,7 +155,9 @@ if ($existing) {
     }
 }
 
-// Verify the token was saved
+// Verify the token was saved (with a small delay to ensure DB commit)
+usleep(100000); // 100ms delay to ensure database commit
+
 $verifyStmt = $db->prepare('SELECT access_token FROM shops WHERE shop_domain = :shop LIMIT 1');
 $verifyStmt->execute(['shop' => $shop]);
 $verifyRow = $verifyStmt->fetch(PDO::FETCH_ASSOC);
@@ -155,6 +167,14 @@ if (!$verifyRow || empty($verifyRow['access_token'])) {
     http_response_code(500);
     echo "Error: Failed to save access token. Please contact support.";
     exit;
+}
+
+// Verify the saved token matches what we tried to save
+$savedToken = trim($verifyRow['access_token']);
+if ($savedToken !== $accessToken) {
+    error_log("WARNING: Token mismatch for shop: {$shop}. Expected length: " . strlen($accessToken) . ", Saved length: " . strlen($savedToken));
+    // Use the saved token anyway, but log the issue
+    $accessToken = $savedToken;
 }
 
 // 6. Redirect back into embedded app inside shop admin
