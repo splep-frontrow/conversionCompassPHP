@@ -365,25 +365,6 @@ $shopName = $shopInfo['name'] ?? $shop;
         </div>
     <?php endif; ?>
 
-    <div class="card">
-        <h2>About Conversion Compass</h2>
-        <p>Conversion Compass is a powerful utility app that helps Shopify store owners track and analyze their order conversion data. With Conversion Compass, you can:</p>
-        <ul style="line-height: 1.8;">
-            <li>View detailed conversion statistics for your orders within customizable date ranges</li>
-            <li>Track UTM parameters (campaign, source, medium, content) associated with each order</li>
-            <li>Analyze referrer data to understand where your customers are coming from</li>
-            <li>Get insights into your marketing campaign performance</li>
-            <li>Categorize traffic sources (Social Media, Direct Links, Email, Other) for better reporting</li>
-        </ul>
-        <p>Whether you're running paid ads, email campaigns, or social media marketing, Conversion Compass gives you the insights you need to optimize your conversion strategy and grow your business.</p>
-    </div>
-
-    <div class="card">
-        <h2>Support</h2>
-        <p>Need help? Contact our support team:</p>
-        <p><a href="mailto:support@shopconversionhistory.com" style="color: #008060; text-decoration: none; font-weight: 500;">support@shopconversionhistory.com</a></p>
-    </div>
-
         </div>
     </div>
 </div>

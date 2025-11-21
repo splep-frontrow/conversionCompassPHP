@@ -115,21 +115,25 @@
         }
         .date-btn {
             padding: 8px 16px;
-            border: 1px solid #c9cccf;
-            background: #ffffff;
+            border: none;
+            background: #5B9BD5;
+            color: white;
             border-radius: 4px;
             cursor: pointer;
             font-size: 0.9rem;
             transition: all 0.2s;
+            text-decoration: none;
+            display: inline-block;
         }
         .date-btn:hover {
-            background: #f6f6f7;
-            border-color: #008060;
+            background: #4A90E2;
+            color: white;
+            text-decoration: none;
         }
         .date-btn.active {
-            background: #008060;
+            background: #4A90E2;
             color: white;
-            border-color: #008060;
+            text-decoration: none;
         }
         .custom-dates {
             display: flex;
@@ -289,7 +293,6 @@
         <div class="container">
     <div class="card">
         <h1>Order Conversion Data</h1>
-        <p>Store: <strong><?= htmlspecialchars($shopName, ENT_QUOTES, 'UTF-8') ?></strong></p>
         
         <?php if ($error): ?>
             <div class="error"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div>
