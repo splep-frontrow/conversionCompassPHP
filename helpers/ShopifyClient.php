@@ -39,7 +39,7 @@ class ShopifyClient
         return $accessToken;
     }
 
-    public static function apiRequest(string $shop, string $accessToken, string $path, string $method = 'GET', ?array $data = null): array
+    public static function apiRequest(string $shop, string $accessToken, string $path, string $method = 'GET', ?array $data = null, bool $retryOn401 = false): array
     {
         // Trim token to ensure no whitespace issues
         $accessToken = trim($accessToken);
@@ -53,7 +53,15 @@ class ShopifyClient
             ];
         }
         
-        $url = "https://{$shop}{$path}";
+        // Update API version to latest stable (2024-10)
+        // Replace old API version in path if present
+        $apiPath = $path;
+        if (preg_match('#/admin/api/\d{4}-\d{2}/#', $apiPath)) {
+            // Use 2024-10 (latest stable as of Nov 2024)
+            $apiPath = preg_replace('#/admin/api/\d{4}-\d{2}/#', '/admin/api/2024-10/', $apiPath);
+        }
+        
+        $url = "https://{$shop}{$apiPath}";
 
         $headers = [
             'X-Shopify-Access-Token: ' . $accessToken,
@@ -67,7 +75,22 @@ class ShopifyClient
         
         // Log API errors for debugging
         if ($response['status'] !== 200) {
-            error_log("Shopify API Error - Shop: {$shop}, Status: {$response['status']}, Path: {$path}, Response: " . substr($response['body'], 0, 500));
+            error_log("Shopify API Error - Shop: {$shop}, Status: {$response['status']}, Path: {$apiPath}, Original Path: {$path}, Response: " . substr($response['body'], 0, 500));
+        }
+        
+        // If 401 and retry enabled, wait and retry once (for token activation delays)
+        if ($response['status'] === 401 && $retryOn401) {
+            error_log("401 error on {$apiPath}, waiting 2 seconds and retrying...");
+            sleep(2);
+            
+            $response = self::curl($url, $method, $data, $headers);
+            $decoded = json_decode($response['body'], true);
+            
+            if ($response['status'] === 200) {
+                error_log("Retry successful for shop: {$shop} after delay");
+            } else {
+                error_log("Retry still failed for shop: {$shop}, status: {$response['status']}");
+            }
         }
         
         return [

@@ -34,6 +34,8 @@ $tokenSource = 'unknown';
 $sessionId = session_id();
 
 error_log("index.php: Checking for token for shop: {$shop}, session_id: {$sessionId}");
+error_log("index.php: Session keys present: " . (isset($_SESSION[$tempTokenKey]) ? 'yes' : 'no') . ", " . (isset($_SESSION[$tempTokenTimeKey]) ? 'yes' : 'no'));
+error_log("index.php: All session keys: " . implode(', ', array_keys($_SESSION ?? [])));
 
 if (isset($_SESSION[$tempTokenKey]) && isset($_SESSION[$tempTokenTimeKey])) {
     $tokenAge = time() - $_SESSION[$tempTokenTimeKey];
@@ -101,23 +103,8 @@ error_log("Token preview (first 5, last 5): " . substr($accessToken, 0, 5) . "..
 SubscriptionHelper::updateUsage($shop);
 
 // Fetch shop info from Shopify
-$response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-01/shop.json', 'GET');
-
-// If 401 and token came from session (fresh install), retry once after delay
-// Shopify sometimes needs a moment to fully activate the token
-if ($response['status'] === 401 && $tokenSource === 'session') {
-    error_log("401 error with session token for shop: {$shop}, waiting 1 second and retrying...");
-    sleep(1);
-    
-    // Retry the API request
-    $response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-01/shop.json', 'GET');
-    
-    if ($response['status'] === 200) {
-        error_log("Retry successful for shop: {$shop} after token activation delay");
-    } else {
-        error_log("Retry still failed for shop: {$shop}, status: {$response['status']}");
-    }
-}
+// Use retryOn401=true if token came from session (fresh install) to handle activation delays
+$response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-01/shop.json', 'GET', null, $tokenSource === 'session');
 
 if ($response['status'] !== 200) {
     http_response_code(500);
@@ -136,16 +123,33 @@ if ($response['status'] !== 200) {
     error_log("Token info: length=" . strlen($accessToken) . ", first_chars=" . substr($accessToken, 0, 5) . "...");
     error_log("API Key (first 10 chars): " . substr(SHOPIFY_API_KEY, 0, 10) . "...");
     
-    // If it's a 401, the token is likely invalid - delete the shop record to force reinstall
+    // If it's a 401, check if this was a fresh install - if so, don't delete immediately
+    // The token might just need more time to activate
     if ($response['status'] === 401) {
-        error_log("401 error detected - deleting shop record to force reinstall for shop: {$shop}");
-        error_log("NOTE: 401 errors often indicate API credential mismatch. Verify SHOPIFY_API_KEY and SHOPIFY_API_SECRET in config.local.php match your Shopify Partners dashboard.");
-        try {
-            $deleteStmt = $db->prepare('DELETE FROM shops WHERE shop_domain = :shop');
-            $deleteStmt->execute(['shop' => $shop]);
-            error_log("Successfully deleted shop record for: {$shop}");
-        } catch (Exception $e) {
-            error_log("Failed to delete invalid shop record: " . $e->getMessage());
+        // Check if we just installed (within last 30 seconds)
+        $checkRecentStmt = $db->prepare('SELECT installed_at FROM shops WHERE shop_domain = :shop LIMIT 1');
+        $checkRecentStmt->execute(['shop' => $shop]);
+        $recentRow = $checkRecentStmt->fetch(PDO::FETCH_ASSOC);
+        
+        $isRecentInstall = false;
+        if ($recentRow && isset($recentRow['installed_at'])) {
+            $installTime = strtotime($recentRow['installed_at']);
+            $isRecentInstall = (time() - $installTime) < 30; // Installed within last 30 seconds
+        }
+        
+        if ($isRecentInstall) {
+            error_log("401 error detected for recently installed shop: {$shop} (installed " . (time() - $installTime) . "s ago)");
+            error_log("Token may still be activating - NOT deleting record. User should refresh the page.");
+        } else {
+            error_log("401 error detected - deleting shop record to force reinstall for shop: {$shop}");
+            error_log("NOTE: 401 errors often indicate API credential mismatch. Verify SHOPIFY_API_KEY and SHOPIFY_API_SECRET in config.local.php match your Shopify Partners dashboard.");
+            try {
+                $deleteStmt = $db->prepare('DELETE FROM shops WHERE shop_domain = :shop');
+                $deleteStmt->execute(['shop' => $shop]);
+                error_log("Successfully deleted shop record for: {$shop}");
+            } catch (Exception $e) {
+                error_log("Failed to delete invalid shop record: " . $e->getMessage());
+            }
         }
     }
     
