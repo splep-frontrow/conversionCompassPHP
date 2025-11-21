@@ -62,8 +62,12 @@ if (isset($_SESSION[$tempTokenKey]) && isset($_SESSION[$tempTokenTimeKey])) {
 }
 
 // If no temp token, look up shop in DB
+$isFreshInstall = false;
+$installTimestamp = null;
+
 if (empty($accessToken)) {
-    $stmt = $db->prepare('SELECT access_token FROM shops WHERE shop_domain = :shop LIMIT 1');
+    // Fetch access_token and install timestamps to detect fresh installs
+    $stmt = $db->prepare('SELECT access_token, installed_at, last_reinstalled_at FROM shops WHERE shop_domain = :shop LIMIT 1');
     $stmt->execute(['shop' => $shop]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     
@@ -77,7 +81,21 @@ if (empty($accessToken)) {
     
     $accessToken = trim($row['access_token'] ?? '');
     $tokenSource = 'database';
-    error_log("Using token from database for shop: {$shop}");
+    
+    // Check if this is a fresh install (within last 30 seconds)
+    $installTimestamp = $row['last_reinstalled_at'] ?? $row['installed_at'] ?? null;
+    if ($installTimestamp) {
+        $installTime = strtotime($installTimestamp);
+        $secondsSinceInstall = time() - $installTime;
+        $isFreshInstall = $secondsSinceInstall < 30; // Installed within last 30 seconds
+        
+        if ($isFreshInstall) {
+            $tokenSource = 'fresh_install';
+            error_log("Fresh install detected for shop: {$shop}, installed {$secondsSinceInstall}s ago");
+        }
+    }
+    
+    error_log("Using token from database for shop: {$shop}, token_source: {$tokenSource}");
     error_log("DB token preview (first 5, last 5): " . substr($accessToken, 0, 5) . "..." . substr($accessToken, -5));
 }
 
@@ -99,12 +117,20 @@ if (!str_starts_with($accessToken, 'shpat') && !str_starts_with($accessToken, 's
 error_log("Loading shop info for {$shop}, token_source: {$tokenSource}, token_length: " . strlen($accessToken));
 error_log("Token preview (first 5, last 5): " . substr($accessToken, 0, 5) . "..." . substr($accessToken, -5));
 
+// If this is a fresh install, wait a moment for token activation
+if ($isFreshInstall || $tokenSource === 'fresh_install' || $tokenSource === 'session') {
+    $waitTime = 2; // Wait 2 seconds for token activation
+    error_log("Fresh install detected - waiting {$waitTime}s for token activation before API call");
+    sleep($waitTime);
+}
+
 // Update daily usage tracking
 SubscriptionHelper::updateUsage($shop);
 
 // Fetch shop info from Shopify
-// Use retryOn401=true if token came from session (fresh install) to handle activation delays
-$response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-10/shop.json', 'GET', null, $tokenSource === 'session');
+// Use retryOn401=true if token came from session or fresh install to handle activation delays
+$shouldRetry = ($tokenSource === 'session' || $tokenSource === 'fresh_install' || $isFreshInstall);
+$response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-10/shop.json', 'GET', null, $shouldRetry);
 
 if ($response['status'] !== 200) {
     http_response_code(500);
@@ -126,19 +152,15 @@ if ($response['status'] !== 200) {
     // If it's a 401, check if this was a fresh install - if so, don't delete immediately
     // The token might just need more time to activate
     if ($response['status'] === 401) {
-        // Check if we just installed (within last 30 seconds)
-        $checkRecentStmt = $db->prepare('SELECT installed_at FROM shops WHERE shop_domain = :shop LIMIT 1');
-        $checkRecentStmt->execute(['shop' => $shop]);
-        $recentRow = $checkRecentStmt->fetch(PDO::FETCH_ASSOC);
-        
-        $isRecentInstall = false;
-        if ($recentRow && isset($recentRow['installed_at'])) {
-            $installTime = strtotime($recentRow['installed_at']);
-            $isRecentInstall = (time() - $installTime) < 30; // Installed within last 30 seconds
+        // Use the fresh install detection we already did, or check again if needed
+        if (!$isFreshInstall && $installTimestamp) {
+            $installTime = strtotime($installTimestamp);
+            $isFreshInstall = (time() - $installTime) < 30; // Installed within last 30 seconds
         }
         
-        if ($isRecentInstall) {
-            error_log("401 error detected for recently installed shop: {$shop} (installed " . (time() - $installTime) . "s ago)");
+        if ($isFreshInstall || $tokenSource === 'fresh_install' || $tokenSource === 'session') {
+            $secondsAgo = $installTimestamp ? (time() - strtotime($installTimestamp)) : 'unknown';
+            error_log("401 error detected for recently installed shop: {$shop} (installed {$secondsAgo}s ago, token_source: {$tokenSource})");
             error_log("Token may still be activating - NOT deleting record. User should refresh the page.");
         } else {
             error_log("401 error detected - deleting shop record to force reinstall for shop: {$shop}");
