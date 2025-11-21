@@ -1,7 +1,8 @@
 <?php
 declare(strict_types=1);
 
-session_start();
+require_once __DIR__ . '/helpers/session.php';
+init_shopify_session();
 
 // Allow embedding in iframe (required for Shopify embedded apps)
 header('X-Frame-Options: ALLOWALL');
@@ -23,19 +24,42 @@ if (!$shop) {
 
 $db = get_db();
 
-// Look up shop in DB
-$stmt = $db->prepare('SELECT access_token FROM shops WHERE shop_domain = :shop LIMIT 1');
-$stmt->execute(['shop' => $shop]);
-$row = $stmt->fetch(PDO::FETCH_ASSOC);
+// Check for temporary token in session first (from callback.php redirect)
+// This avoids race condition where DB hasn't committed yet
+$accessToken = null;
+$tempTokenKey = 'shopify_temp_token_' . $shop;
+$tempTokenTimeKey = 'shopify_temp_token_time_' . $shop;
 
-if (!$row) {
-    // Not installed yet, send to install flow
-    $installUrl = '/install.php?shop=' . urlencode($shop);
-    header('Location: ' . $installUrl);
-    exit;
+if (isset($_SESSION[$tempTokenKey]) && isset($_SESSION[$tempTokenTimeKey])) {
+    // Token is valid for 30 seconds
+    if (time() - $_SESSION[$tempTokenTimeKey] < 30) {
+        $accessToken = trim($_SESSION[$tempTokenKey]);
+        // Clear the temporary token after use
+        unset($_SESSION[$tempTokenKey]);
+        unset($_SESSION[$tempTokenTimeKey]);
+        error_log("Using temporary token from session for shop: {$shop}");
+    } else {
+        // Token expired, clear it
+        unset($_SESSION[$tempTokenKey]);
+        unset($_SESSION[$tempTokenTimeKey]);
+    }
 }
 
-$accessToken = trim($row['access_token'] ?? '');
+// If no temp token, look up shop in DB
+if (empty($accessToken)) {
+    $stmt = $db->prepare('SELECT access_token FROM shops WHERE shop_domain = :shop LIMIT 1');
+    $stmt->execute(['shop' => $shop]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$row) {
+        // Not installed yet, send to install flow
+        $installUrl = '/install.php?shop=' . urlencode($shop);
+        header('Location: ' . $installUrl);
+        exit;
+    }
+    
+    $accessToken = trim($row['access_token'] ?? '');
+}
 
 // Verify access token exists
 if (empty($accessToken)) {

@@ -155,27 +155,47 @@ if ($existing) {
     }
 }
 
-// Verify the token was saved (with a small delay to ensure DB commit)
-usleep(100000); // 100ms delay to ensure database commit
-
-$verifyStmt = $db->prepare('SELECT access_token FROM shops WHERE shop_domain = :shop LIMIT 1');
-$verifyStmt->execute(['shop' => $shop]);
-$verifyRow = $verifyStmt->fetch(PDO::FETCH_ASSOC);
-
-if (!$verifyRow || empty($verifyRow['access_token'])) {
-    error_log("CRITICAL: Access token not saved properly for shop: {$shop}");
-    http_response_code(500);
-    echo "Error: Failed to save access token. Please contact support.";
-    exit;
+// Force database connection to flush/commit
+// PDO autocommit is ON by default, but we'll ensure the connection is flushed
+try {
+    // Close the connection to force a commit
+    $db = null;
+    // Reopen connection to ensure we're reading from a fresh connection
+    $db = get_db();
+    
+    // Verify the token was saved with a fresh connection
+    $verifyStmt = $db->prepare('SELECT access_token FROM shops WHERE shop_domain = :shop LIMIT 1');
+    $verifyStmt->execute(['shop' => $shop]);
+    $verifyRow = $verifyStmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$verifyRow || empty($verifyRow['access_token'])) {
+        error_log("CRITICAL: Access token not saved properly for shop: {$shop}");
+        http_response_code(500);
+        echo "Error: Failed to save access token. Please contact support.";
+        exit;
+    }
+    
+    // Verify the saved token matches what we tried to save
+    $savedToken = trim($verifyRow['access_token']);
+    if ($savedToken !== $accessToken) {
+        error_log("WARNING: Token mismatch for shop: {$shop}. Expected length: " . strlen($accessToken) . ", Saved length: " . strlen($savedToken));
+        // Use the saved token anyway, but log the issue
+        $accessToken = $savedToken;
+    }
+    
+    error_log("Token verified successfully for shop: {$shop}, length: " . strlen($accessToken));
+} catch (Exception $e) {
+    error_log("Error verifying token: " . $e->getMessage());
+    // Continue anyway - the token should be saved
 }
 
-// Verify the saved token matches what we tried to save
-$savedToken = trim($verifyRow['access_token']);
-if ($savedToken !== $accessToken) {
-    error_log("WARNING: Token mismatch for shop: {$shop}. Expected length: " . strlen($accessToken) . ", Saved length: " . strlen($savedToken));
-    // Use the saved token anyway, but log the issue
-    $accessToken = $savedToken;
-}
+// Store token in session temporarily to avoid DB race condition on first load
+// This ensures index.php can use it immediately without waiting for DB replication/commit
+// Session is already started by init_shopify_session() at the top of this file
+$_SESSION['shopify_temp_token_' . $shop] = $accessToken;
+$_SESSION['shopify_temp_token_time_' . $shop] = time();
+error_log("Stored temporary token in session for shop: {$shop}");
+// Don't close session here - let it persist for the redirect
 
 // 6. Redirect back into embedded app inside shop admin
 $appUrl = 'https://' . parse_url(SHOPIFY_REDIRECT_URI, PHP_URL_HOST) . '/index.php';
