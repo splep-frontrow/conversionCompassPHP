@@ -78,18 +78,32 @@ class ShopifyClient
             error_log("Shopify API Error - Shop: {$shop}, Status: {$response['status']}, Path: {$apiPath}, Original Path: {$path}, Response: " . substr($response['body'], 0, 500));
         }
         
-        // If 401 and retry enabled, wait and retry once (for token activation delays)
+        // If 401 and retry enabled, retry multiple times (for token activation delays on fresh installs)
         if ($response['status'] === 401 && $retryOn401) {
-            error_log("401 error on {$apiPath}, waiting 2 seconds and retrying...");
-            sleep(2);
+            $maxRetries = 5;
+            $retryDelay = 2; // seconds between retries
+            $retryCount = 0;
             
-            $response = self::curl($url, $method, $data, $headers);
-            $decoded = json_decode($response['body'], true);
+            error_log("401 error on {$apiPath} for shop: {$shop}, starting retry loop (max {$maxRetries} retries)");
             
-            if ($response['status'] === 200) {
-                error_log("Retry successful for shop: {$shop} after delay");
-            } else {
-                error_log("Retry still failed for shop: {$shop}, status: {$response['status']}");
+            while ($response['status'] === 401 && $retryCount < $maxRetries) {
+                $retryCount++;
+                error_log("Retry attempt {$retryCount}/{$maxRetries} for shop: {$shop}, waiting {$retryDelay}s...");
+                sleep($retryDelay);
+                
+                $response = self::curl($url, $method, $data, $headers);
+                $decoded = json_decode($response['body'], true);
+                
+                if ($response['status'] === 200) {
+                    error_log("Retry successful for shop: {$shop} on attempt {$retryCount}");
+                    break;
+                } else {
+                    error_log("Retry attempt {$retryCount} failed for shop: {$shop}, status: {$response['status']}");
+                }
+            }
+            
+            if ($response['status'] !== 200) {
+                error_log("All {$maxRetries} retry attempts exhausted for shop: {$shop}, final status: {$response['status']}");
             }
         }
         

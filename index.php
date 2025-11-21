@@ -117,19 +117,17 @@ if (!str_starts_with($accessToken, 'shpat') && !str_starts_with($accessToken, 's
 error_log("Loading shop info for {$shop}, token_source: {$tokenSource}, token_length: " . strlen($accessToken));
 error_log("Token preview (first 5, last 5): " . substr($accessToken, 0, 5) . "..." . substr($accessToken, -5));
 
-// If this is a fresh install, wait a moment for token activation
-if ($isFreshInstall || $tokenSource === 'fresh_install' || $tokenSource === 'session') {
-    $waitTime = 2; // Wait 2 seconds for token activation
-    error_log("Fresh install detected - waiting {$waitTime}s for token activation before API call");
-    sleep($waitTime);
-}
-
 // Update daily usage tracking
 SubscriptionHelper::updateUsage($shop);
 
 // Fetch shop info from Shopify
 // Use retryOn401=true if token came from session or fresh install to handle activation delays
+// The retry logic will handle multiple attempts automatically, so we don't need to wait here
 $shouldRetry = ($tokenSource === 'session' || $tokenSource === 'fresh_install' || $isFreshInstall);
+if ($shouldRetry) {
+    error_log("Fresh install detected for shop: {$shop} - enabling retry logic for token activation");
+}
+
 $response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-10/shop.json', 'GET', null, $shouldRetry);
 
 if ($response['status'] !== 200) {
@@ -161,7 +159,10 @@ if ($response['status'] !== 200) {
         if ($isFreshInstall || $tokenSource === 'fresh_install' || $tokenSource === 'session') {
             $secondsAgo = $installTimestamp ? (time() - strtotime($installTimestamp)) : 'unknown';
             error_log("401 error detected for recently installed shop: {$shop} (installed {$secondsAgo}s ago, token_source: {$tokenSource})");
-            error_log("Token may still be activating - NOT deleting record. User should refresh the page.");
+            error_log("All retry attempts have been exhausted - token activation may have failed. NOT deleting record - user may need to wait and refresh.");
+            // Don't show error message for fresh installs - let them refresh naturally
+            // The retry logic already tried multiple times, so if it still fails, 
+            // the token might be invalid or there's a credential mismatch
         } else {
             error_log("401 error detected - deleting shop record to force reinstall for shop: {$shop}");
             error_log("NOTE: 401 errors often indicate API credential mismatch. Verify SHOPIFY_API_KEY and SHOPIFY_API_SECRET in config.local.php match your Shopify Partners dashboard.");
@@ -175,12 +176,19 @@ if ($response['status'] !== 200) {
         }
     }
     
-    echo "Failed to load shop info from Shopify.";
-    echo "<br><small>HTTP Status: {$response['status']}</small>";
-    if ($errorDetails) {
-        echo "<br><small>" . htmlspecialchars($errorDetails) . "</small>";
+    // For fresh installs that still fail after retries, show a more helpful message
+    if (($isFreshInstall || $tokenSource === 'fresh_install' || $tokenSource === 'session') && $response['status'] === 401) {
+        echo "The app is still initializing. Please wait a moment and refresh the page.";
+        echo "<br><br><a href='?shop=" . urlencode($shop) . "'>Refresh Page</a>";
+        echo "<br><small>If this persists, try <a href='/install.php?shop=" . urlencode($shop) . "'>reinstalling the app</a></small>";
+    } else {
+        echo "Failed to load shop info from Shopify.";
+        echo "<br><small>HTTP Status: {$response['status']}</small>";
+        if ($errorDetails) {
+            echo "<br><small>" . htmlspecialchars($errorDetails) . "</small>";
+        }
+        echo "<br><br><a href='/install.php?shop=" . urlencode($shop) . "'>Try reinstalling the app</a>";
     }
-    echo "<br><br><a href='/install.php?shop=" . urlencode($shop) . "'>Try reinstalling the app</a>";
     exit;
 }
 
