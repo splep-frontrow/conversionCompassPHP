@@ -18,5 +18,7 @@ define('ADMIN_PASSWORD', 'YOUR_SECURE_ADMIN_PASSWORD');
 define('MONTHLY_PRICE', 29.00);
 define('ANNUAL_PRICE', 290.00);
 
-// Webhook secret (set in Shopify Partners dashboard)
+// Webhook secret (set in Shopify Partners dashboard).
+// Use the same secret for compliance webhooks so `webhooks/compliance.php` can verify `X-Shopify-Hmac-Sha256` as required
+// by Shopify's privacy compliance checklist: https://shopify.dev/docs/apps/build/compliance/privacy-law-compliance.
 define('SHOPIFY_WEBHOOK_SECRET', 'YOUR_WEBHOOK_SECRET');
