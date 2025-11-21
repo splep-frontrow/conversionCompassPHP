@@ -116,7 +116,7 @@ class ShopifyClient
             ],
         ];
 
-        return self::apiRequest($shop, $accessToken, '/admin/api/2024-01/recurring_application_charges.json', 'POST', $payload);
+        return self::apiRequest($shop, $accessToken, '/admin/api/2024-10/recurring_application_charges.json', 'POST', $payload);
     }
 
     /**
@@ -124,7 +124,7 @@ class ShopifyClient
      */
     public static function getChargeStatus(string $shop, string $accessToken, string $chargeId): array
     {
-        return self::apiRequest($shop, $accessToken, "/admin/api/2024-01/recurring_application_charges/{$chargeId}.json", 'GET');
+        return self::apiRequest($shop, $accessToken, "/admin/api/2024-10/recurring_application_charges/{$chargeId}.json", 'GET');
     }
 
     /**
@@ -132,7 +132,39 @@ class ShopifyClient
      */
     public static function cancelCharge(string $shop, string $accessToken, string $chargeId): array
     {
-        return self::apiRequest($shop, $accessToken, "/admin/api/2024-01/recurring_application_charges/{$chargeId}.json", 'DELETE');
+        return self::apiRequest($shop, $accessToken, "/admin/api/2024-10/recurring_application_charges/{$chargeId}.json", 'DELETE');
+    }
+
+    /**
+     * Create a webhook for the shop
+     */
+    public static function createWebhook(string $shop, string $accessToken, string $topic, string $address): array
+    {
+        $payload = [
+            'webhook' => [
+                'topic'   => $topic,
+                'address' => $address,
+                'format'  => 'json',
+            ],
+        ];
+        
+        return self::apiRequest($shop, $accessToken, '/admin/api/2024-10/webhooks.json', 'POST', $payload);
+    }
+
+    /**
+     * List existing webhooks for a shop
+     */
+    public static function listWebhooks(string $shop, string $accessToken): array
+    {
+        return self::apiRequest($shop, $accessToken, '/admin/api/2024-10/webhooks.json', 'GET');
+    }
+
+    /**
+     * Delete a webhook
+     */
+    public static function deleteWebhook(string $shop, string $accessToken, string $webhookId): array
+    {
+        return self::apiRequest($shop, $accessToken, "/admin/api/2024-10/webhooks/{$webhookId}.json", 'DELETE');
     }
 
     /**
@@ -140,7 +172,7 @@ class ShopifyClient
      */
     public static function graphqlQuery(string $shop, string $accessToken, string $query, array $variables = []): array
     {
-        $url = "https://{$shop}/admin/api/2024-01/graphql.json";
+        $url = "https://{$shop}/admin/api/2024-10/graphql.json";
 
         $payload = [
             'query' => $query,

@@ -82,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 }
 
 // Fetch shop info from Shopify
-$response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-01/shop.json', 'GET');
+$response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-10/shop.json', 'GET');
 $shopInfo = $response['status'] === 200 ? ($response['body']['shop'] ?? []) : [];
 $shopName = $shopInfo['name'] ?? $shop;
 

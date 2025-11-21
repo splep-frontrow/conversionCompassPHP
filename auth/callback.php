@@ -189,6 +189,65 @@ try {
     // Continue anyway - the token should be saved
 }
 
+// Register required webhooks for this shop
+try {
+    $webhookBaseUrl = 'https://' . parse_url(SHOPIFY_REDIRECT_URI, PHP_URL_HOST);
+    
+    // List existing webhooks to avoid duplicates
+    $existingWebhooks = ShopifyClient::listWebhooks($shop, $accessToken);
+    $existingTopics = [];
+    
+    if ($existingWebhooks['status'] === 200 && isset($existingWebhooks['body']['webhooks'])) {
+        foreach ($existingWebhooks['body']['webhooks'] as $webhook) {
+            if ($webhook['address'] === $webhookBaseUrl . '/webhooks/charges.php') {
+                $existingTopics[] = $webhook['topic'];
+            }
+        }
+    }
+    
+    // Register app/uninstalled webhook if not already registered
+    if (!in_array('app/uninstalled', $existingTopics)) {
+        $webhookResponse = ShopifyClient::createWebhook(
+            $shop,
+            $accessToken,
+            'app/uninstalled',
+            $webhookBaseUrl . '/webhooks/charges.php'
+        );
+        
+        if ($webhookResponse['status'] === 201) {
+            error_log("Successfully registered app/uninstalled webhook for shop: {$shop}");
+        } else {
+            error_log("Failed to register app/uninstalled webhook for shop: {$shop}, status: {$webhookResponse['status']}, response: " . substr($webhookResponse['raw'] ?? '', 0, 200));
+        }
+    } else {
+        error_log("app/uninstalled webhook already exists for shop: {$shop}");
+    }
+    
+    // Register recurring_application_charges webhooks if needed
+    $chargeTopics = ['recurring_application_charges/create', 'recurring_application_charges/update'];
+    foreach ($chargeTopics as $topic) {
+        if (!in_array($topic, $existingTopics)) {
+            $webhookResponse = ShopifyClient::createWebhook(
+                $shop,
+                $accessToken,
+                $topic,
+                $webhookBaseUrl . '/webhooks/charges.php'
+            );
+            
+            if ($webhookResponse['status'] === 201) {
+                error_log("Successfully registered {$topic} webhook for shop: {$shop}");
+            } else {
+                error_log("Failed to register {$topic} webhook for shop: {$shop}, status: {$webhookResponse['status']}, response: " . substr($webhookResponse['raw'] ?? '', 0, 200));
+            }
+        } else {
+            error_log("{$topic} webhook already exists for shop: {$shop}");
+        }
+    }
+} catch (Exception $e) {
+    error_log("Error registering webhooks for shop {$shop}: " . $e->getMessage());
+    // Don't fail installation if webhook registration fails
+}
+
 // Store token in session temporarily to avoid DB race condition on first load
 // This ensures index.php can use it immediately without waiting for DB replication/commit
 // Session is already started by init_shopify_session() at the top of this file

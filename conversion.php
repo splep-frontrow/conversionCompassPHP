@@ -51,7 +51,7 @@ if (empty($accessToken)) {
 SubscriptionHelper::updateUsage($shop);
 
 // Fetch shop info from Shopify
-$response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-01/shop.json', 'GET');
+$response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-10/shop.json', 'GET');
 
 if ($response['status'] !== 200) {
     http_response_code(500);

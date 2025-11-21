@@ -121,7 +121,7 @@ if (!$migrationError) {
         foreach ($shops as &$shop) {
             try {
                 if (!empty($shop['access_token'])) {
-                    $response = ShopifyClient::apiRequest($shop['shop_domain'], $shop['access_token'], '/admin/api/2024-01/shop.json', 'GET');
+                    $response = ShopifyClient::apiRequest($shop['shop_domain'], $shop['access_token'], '/admin/api/2024-10/shop.json', 'GET');
                     if ($response['status'] === 200 && isset($response['body']['shop']['name'])) {
                         $shop['store_name'] = $response['body']['shop']['name'];
                     } else {

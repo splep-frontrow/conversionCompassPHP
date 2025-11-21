@@ -104,7 +104,7 @@ SubscriptionHelper::updateUsage($shop);
 
 // Fetch shop info from Shopify
 // Use retryOn401=true if token came from session (fresh install) to handle activation delays
-$response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-01/shop.json', 'GET', null, $tokenSource === 'session');
+$response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-10/shop.json', 'GET', null, $tokenSource === 'session');
 
 if ($response['status'] !== 200) {
     http_response_code(500);
