@@ -70,15 +70,18 @@ if ($response['status'] !== 200) {
     
     error_log("Shopify API error for shop {$shop}: Status {$response['status']}{$errorDetails}");
     error_log("Token info: length=" . strlen($accessToken) . ", first_chars=" . substr($accessToken, 0, 5) . "...");
+    error_log("API Key (first 10 chars): " . substr(SHOPIFY_API_KEY, 0, 10) . "...");
     
-    // If it's a 401, the token is likely invalid - clear it and force reinstall
+    // If it's a 401, the token is likely invalid - delete the shop record to force reinstall
     if ($response['status'] === 401) {
-        error_log("401 error detected - clearing invalid token for shop: {$shop}");
+        error_log("401 error detected - deleting shop record to force reinstall for shop: {$shop}");
+        error_log("NOTE: 401 errors often indicate API credential mismatch. Verify SHOPIFY_API_KEY and SHOPIFY_API_SECRET in config.local.php match your Shopify Partners dashboard.");
         try {
-            $clearStmt = $db->prepare('UPDATE shops SET access_token = NULL WHERE shop_domain = :shop');
-            $clearStmt->execute(['shop' => $shop]);
+            $deleteStmt = $db->prepare('DELETE FROM shops WHERE shop_domain = :shop');
+            $deleteStmt->execute(['shop' => $shop]);
+            error_log("Successfully deleted shop record for: {$shop}");
         } catch (Exception $e) {
-            error_log("Failed to clear invalid token: " . $e->getMessage());
+            error_log("Failed to delete invalid shop record: " . $e->getMessage());
         }
     }
     
