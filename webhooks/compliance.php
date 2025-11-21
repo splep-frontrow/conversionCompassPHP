@@ -38,7 +38,8 @@ if (!$hmacValid) {
     error_log("HMAC header present: " . (!empty($hmacHeader) ? 'yes' : 'no'));
     error_log("Data length: " . strlen($data));
     error_log("Tried API_SECRET and WEBHOOK_SECRET, both failed");
-    http_response_code(401);
+    // Return 400 Bad Request for invalid HMAC as required by Shopify's automated checks
+    http_response_code(400);
     echo "Invalid HMAC";
     exit;
 } else {

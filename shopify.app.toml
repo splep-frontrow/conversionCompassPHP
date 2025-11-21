@@ -2,8 +2,11 @@ name = "Conversion Compass PHP"
 type = "custom"
 url = "https://backend.shopconversionhistory.com"
 
+[auth]
+redirect_urls = ["https://backend.shopconversionhistory.com/auth/callback.php"]
+
 [webhooks]
-api_version = "2025-10"
+api_version = "2024-10"
 
 [[webhooks.subscriptions]]
 compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
