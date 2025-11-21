@@ -29,19 +29,33 @@ $db = get_db();
 $accessToken = null;
 $tempTokenKey = 'shopify_temp_token_' . $shop;
 $tempTokenTimeKey = 'shopify_temp_token_time_' . $shop;
+$installCompleteKey = 'shopify_install_complete_' . $shop;
+$tokenSource = 'unknown';
+$sessionId = session_id();
+
+error_log("index.php: Checking for token for shop: {$shop}, session_id: {$sessionId}");
 
 if (isset($_SESSION[$tempTokenKey]) && isset($_SESSION[$tempTokenTimeKey])) {
+    $tokenAge = time() - $_SESSION[$tempTokenTimeKey];
     // Token is valid for 30 seconds
-    if (time() - $_SESSION[$tempTokenTimeKey] < 30) {
+    if ($tokenAge < 30) {
         $accessToken = trim($_SESSION[$tempTokenKey]);
+        $tokenSource = 'session';
+        $isFreshInstall = isset($_SESSION[$installCompleteKey]) && $_SESSION[$installCompleteKey] === true;
+        
+        error_log("Using temporary token from session for shop: {$shop}, token_age: {$tokenAge}s, fresh_install: " . ($isFreshInstall ? 'yes' : 'no'));
+        error_log("Session token preview (first 5, last 5): " . substr($accessToken, 0, 5) . "..." . substr($accessToken, -5));
+        
         // Clear the temporary token after use
         unset($_SESSION[$tempTokenKey]);
         unset($_SESSION[$tempTokenTimeKey]);
-        error_log("Using temporary token from session for shop: {$shop}");
+        unset($_SESSION[$installCompleteKey]);
     } else {
         // Token expired, clear it
+        error_log("Session token expired for shop: {$shop}, age: {$tokenAge}s");
         unset($_SESSION[$tempTokenKey]);
         unset($_SESSION[$tempTokenTimeKey]);
+        unset($_SESSION[$installCompleteKey]);
     }
 }
 
@@ -53,12 +67,16 @@ if (empty($accessToken)) {
     
     if (!$row) {
         // Not installed yet, send to install flow
+        error_log("No token found in session or DB for shop: {$shop}, redirecting to install");
         $installUrl = '/install.php?shop=' . urlencode($shop);
         header('Location: ' . $installUrl);
         exit;
     }
     
     $accessToken = trim($row['access_token'] ?? '');
+    $tokenSource = 'database';
+    error_log("Using token from database for shop: {$shop}");
+    error_log("DB token preview (first 5, last 5): " . substr($accessToken, 0, 5) . "..." . substr($accessToken, -5));
 }
 
 // Verify access token exists
@@ -70,14 +88,36 @@ if (empty($accessToken)) {
     exit;
 }
 
+// Validate token format
+if (!str_starts_with($accessToken, 'shpat') && !str_starts_with($accessToken, 'shpca')) {
+    error_log("WARNING: Token format unexpected for shop: {$shop}, starts with: " . substr($accessToken, 0, 5));
+}
+
 // Log token info for debugging (don't log the actual token!)
-error_log("Loading shop info for {$shop}, token length: " . strlen($accessToken));
+error_log("Loading shop info for {$shop}, token_source: {$tokenSource}, token_length: " . strlen($accessToken));
+error_log("Token preview (first 5, last 5): " . substr($accessToken, 0, 5) . "..." . substr($accessToken, -5));
 
 // Update daily usage tracking
 SubscriptionHelper::updateUsage($shop);
 
 // Fetch shop info from Shopify
 $response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-01/shop.json', 'GET');
+
+// If 401 and token came from session (fresh install), retry once after delay
+// Shopify sometimes needs a moment to fully activate the token
+if ($response['status'] === 401 && $tokenSource === 'session') {
+    error_log("401 error with session token for shop: {$shop}, waiting 1 second and retrying...");
+    sleep(1);
+    
+    // Retry the API request
+    $response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-01/shop.json', 'GET');
+    
+    if ($response['status'] === 200) {
+        error_log("Retry successful for shop: {$shop} after token activation delay");
+    } else {
+        error_log("Retry still failed for shop: {$shop}, status: {$response['status']}");
+    }
+}
 
 if ($response['status'] !== 200) {
     http_response_code(500);

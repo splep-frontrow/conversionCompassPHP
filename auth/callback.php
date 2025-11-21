@@ -194,12 +194,23 @@ try {
 // Session is already started by init_shopify_session() at the top of this file
 $_SESSION['shopify_temp_token_' . $shop] = $accessToken;
 $_SESSION['shopify_temp_token_time_' . $shop] = time();
-error_log("Stored temporary token in session for shop: {$shop}");
-// Don't close session here - let it persist for the redirect
+$_SESSION['shopify_install_complete_' . $shop] = true; // Flag to indicate fresh installation
+
+$sessionId = session_id();
+error_log("Stored temporary token in session for shop: {$shop}, session_id: {$sessionId}, token_length: " . strlen($accessToken));
+error_log("Token preview (first 5, last 5): " . substr($accessToken, 0, 5) . "..." . substr($accessToken, -5));
+
+// Explicitly write and close session to ensure persistence before redirect
+session_write_close();
+error_log("Session written and closed before redirect for shop: {$shop}");
+
+// Small delay to ensure Shopify token is fully activated
+usleep(500000); // 500ms delay
 
 // 6. Redirect back into embedded app inside shop admin
 $appUrl = 'https://' . parse_url(SHOPIFY_REDIRECT_URI, PHP_URL_HOST) . '/index.php';
 $redirectUrl = $appUrl . '?shop=' . urlencode($shop);
 
+error_log("Redirecting to: {$redirectUrl} for shop: {$shop}");
 header('Location: ' . $redirectUrl);
 exit;
