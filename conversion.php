@@ -164,7 +164,11 @@ foreach ($orders as $order) {
     $orderDate = $createdAt ? date('Y-m-d H:i', strtotime($createdAt)) : 'N/A';
     
     // Build order URL
-    $orderUrl = "https://{$shop}/admin/orders/{$order['id']}";
+    // Extract shop name from domain (e.g., "frdmakesapps" from "frdmakesapps.myshopify.com")
+    $shopName = str_replace('.myshopify.com', '', $shop);
+    // Extract numeric ID from GID format (e.g., "7549207806245" from "gid://shopify/Order/7549207806245")
+    $numericOrderId = preg_replace('/[^0-9]/', '', $order['id']);
+    $orderUrl = "https://admin.shopify.com/store/{$shopName}/orders/{$numericOrderId}";
     
     $orderData[] = [
         'id' => $order['id'],
