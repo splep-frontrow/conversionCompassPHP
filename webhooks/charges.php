@@ -9,18 +9,43 @@ require_once __DIR__ . '/../helpers/hmac.php';
 $hmacHeader = $_SERVER['HTTP_X_SHOPIFY_HMAC_SHA256'] ?? '';
 $data = file_get_contents('php://input');
 $shop = $_SERVER['HTTP_X_SHOPIFY_SHOP_DOMAIN'] ?? '';
+$topic = $_SERVER['HTTP_X_SHOPIFY_TOPIC'] ?? '';
 
-// Verify webhook HMAC
-$calculatedHmac = base64_encode(hash_hmac('sha256', $data, SHOPIFY_WEBHOOK_SECRET, true));
+// For programmatically created webhooks, Shopify uses the app's API secret
+// Try API_SECRET first (standard for programmatic webhooks), then WEBHOOK_SECRET as fallback
+$hmacValid = false;
+$secretUsed = 'none';
 
-if (!hash_equals($calculatedHmac, $hmacHeader)) {
+// Try with API_SECRET first (this is what Shopify uses for programmatically created webhooks)
+$calculatedHmacApiSecret = base64_encode(hash_hmac('sha256', $data, SHOPIFY_API_SECRET, true));
+if (hash_equals($calculatedHmacApiSecret, $hmacHeader)) {
+    $hmacValid = true;
+    $secretUsed = 'API_SECRET';
+} else {
+    // Try with WEBHOOK_SECRET if configured and different from default
+    if (defined('SHOPIFY_WEBHOOK_SECRET') && SHOPIFY_WEBHOOK_SECRET !== 'your_webhook_secret_here' && SHOPIFY_WEBHOOK_SECRET !== SHOPIFY_API_SECRET) {
+        $calculatedHmacWebhookSecret = base64_encode(hash_hmac('sha256', $data, SHOPIFY_WEBHOOK_SECRET, true));
+        if (hash_equals($calculatedHmacWebhookSecret, $hmacHeader)) {
+            $hmacValid = true;
+            $secretUsed = 'WEBHOOK_SECRET';
+        }
+    }
+}
+
+if (!$hmacValid) {
+    // Log details for debugging (but don't expose secrets)
+    error_log("Webhook HMAC verification failed for shop: {$shop}, topic: {$topic}");
+    error_log("HMAC header present: " . (!empty($hmacHeader) ? 'yes' : 'no'));
+    error_log("Data length: " . strlen($data));
+    error_log("Tried API_SECRET and WEBHOOK_SECRET, both failed");
     http_response_code(401);
     echo "Invalid HMAC";
     exit;
+} else {
+    error_log("Webhook HMAC verification succeeded for shop: {$shop}, topic: {$topic}, using: {$secretUsed}");
 }
 
 $payload = json_decode($data, true);
-$topic = $_SERVER['HTTP_X_SHOPIFY_TOPIC'] ?? '';
 
 $db = get_db();
 
