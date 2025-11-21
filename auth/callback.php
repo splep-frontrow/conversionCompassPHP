@@ -109,6 +109,30 @@ if ($tokenLength < 40) {
 // 5. Store or update shop in DB
 $db = get_db();
 
+// Verify database column size for access_token
+try {
+    $columnCheckStmt = $db->query("SHOW COLUMNS FROM shops WHERE Field = 'access_token'");
+    $columnInfo = $columnCheckStmt->fetch(PDO::FETCH_ASSOC);
+    if ($columnInfo) {
+        $columnType = $columnInfo['Type'] ?? 'unknown';
+        error_log("Database column 'access_token' type: {$columnType}");
+        // Check if it's VARCHAR and extract the size
+        if (preg_match('/varchar\((\d+)\)/i', $columnType, $matches)) {
+            $columnSize = (int)$matches[1];
+            error_log("access_token column size: {$columnSize} characters");
+            if ($columnSize < 100) {
+                error_log("WARNING: access_token column size ({$columnSize}) may be too small for Shopify tokens (typically 50-70 chars)");
+            }
+        }
+    }
+} catch (Exception $e) {
+    error_log("Could not check database column info: " . $e->getMessage());
+}
+
+// Log token length immediately before database save
+error_log("About to save token to database for shop: {$shop}, token_length: " . strlen($accessToken));
+error_log("Token before save (first 10, last 10): " . substr($accessToken, 0, 10) . "..." . substr($accessToken, -10));
+
 // Check if migration columns exist
 $checkColumnsStmt = $db->query("SHOW COLUMNS FROM shops LIKE 'plan_type'");
 $hasNewColumns = $checkColumnsStmt->rowCount() > 0;
@@ -138,6 +162,9 @@ if ($existing) {
             WHERE shop_domain = :shop_domain
         ');
     }
+    // Log token length right before execute
+    error_log("Executing UPDATE for shop: {$shop}, token_length before execute: " . strlen($accessToken));
+    
     $stmt->execute([
         'shop_domain'  => $shop,
         'access_token' => $accessToken,
@@ -147,6 +174,17 @@ if ($existing) {
         error_log("Failed to update shop record for: {$shop}");
     } else {
         error_log("Successfully updated shop record for: {$shop}");
+        // Immediately verify what was saved
+        $verifyStmt = $db->prepare('SELECT access_token, CHAR_LENGTH(access_token) as token_len FROM shops WHERE shop_domain = :shop LIMIT 1');
+        $verifyStmt->execute(['shop' => $shop]);
+        $verifyRow = $verifyStmt->fetch(PDO::FETCH_ASSOC);
+        if ($verifyRow) {
+            $savedLen = (int)$verifyRow['token_len'];
+            error_log("Immediate verification after UPDATE: saved token length = {$savedLen}, original length = " . strlen($accessToken));
+            if ($savedLen !== strlen($accessToken)) {
+                error_log("CRITICAL: Token length mismatch immediately after UPDATE! Original: " . strlen($accessToken) . ", Saved: {$savedLen}");
+            }
+        }
     }
 } else {
     // New installation
@@ -155,6 +193,9 @@ if ($existing) {
             INSERT INTO shops (shop_domain, access_token, installed_at, first_installed_at, last_reinstalled_at, plan_type)
             VALUES (:shop_domain, :access_token, NOW(), NOW(), NOW(), :plan_type)
         ');
+        // Log token length right before execute
+        error_log("Executing INSERT for shop: {$shop}, token_length before execute: " . strlen($accessToken));
+        
         $stmt->execute([
             'shop_domain'  => $shop,
             'access_token' => $accessToken,
@@ -166,6 +207,10 @@ if ($existing) {
             INSERT INTO shops (shop_domain, access_token, installed_at)
             VALUES (:shop_domain, :access_token, NOW())
         ');
+        
+        // Log token length right before execute
+        error_log("Executing INSERT (old schema) for shop: {$shop}, token_length before execute: " . strlen($accessToken));
+        
         $stmt->execute([
             'shop_domain'  => $shop,
             'access_token' => $accessToken,
@@ -176,6 +221,17 @@ if ($existing) {
         error_log("Failed to insert shop record for: {$shop}");
     } else {
         error_log("Successfully inserted shop record for: {$shop}");
+        // Immediately verify what was saved
+        $verifyStmt = $db->prepare('SELECT access_token, CHAR_LENGTH(access_token) as token_len FROM shops WHERE shop_domain = :shop LIMIT 1');
+        $verifyStmt->execute(['shop' => $shop]);
+        $verifyRow = $verifyStmt->fetch(PDO::FETCH_ASSOC);
+        if ($verifyRow) {
+            $savedLen = (int)$verifyRow['token_len'];
+            error_log("Immediate verification after INSERT: saved token length = {$savedLen}, original length = " . strlen($accessToken));
+            if ($savedLen !== strlen($accessToken)) {
+                error_log("CRITICAL: Token length mismatch immediately after INSERT! Original: " . strlen($accessToken) . ", Saved: {$savedLen}");
+            }
+        }
     }
 }
 
