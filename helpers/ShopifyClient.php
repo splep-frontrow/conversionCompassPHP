@@ -35,9 +35,12 @@ class ShopifyClient
             error_log("Successfully obtained access token for shop: {$shop}, length: {$tokenLength}");
             error_log("Token preview (first 10, last 10): " . substr($accessToken, 0, 10) . "..." . substr($accessToken, -10));
             
-            // Validate token length from Shopify response
-            if ($tokenLength < 40) {
-                error_log("WARNING: Token from Shopify is shorter than expected for shop: {$shop}. Length: {$tokenLength}, expected at least 40 characters.");
+            // Validate token length from Shopify response (minimum 38 chars is valid)
+            if ($tokenLength < 38) {
+                error_log("WARNING: Token from Shopify is shorter than expected for shop: {$shop}. Length: {$tokenLength}, expected at least 38 characters.");
+            } elseif ($tokenLength === 38) {
+                // 38 chars is valid: shpat_ (6) + 32 chars = 38 total
+                error_log("Token length is 38 characters (valid format: shpat_ + 32 chars)");
             }
         } else {
             error_log("Access token not found in response for shop: {$shop}. Response: " . substr($response['body'], 0, 200));

@@ -49,8 +49,8 @@ if (isset($_SESSION[$tempTokenKey]) && isset($_SESSION[$tempTokenTimeKey])) {
         error_log("Using temporary token from session for shop: {$shop}, token_age: {$tokenAge}s, fresh_install: " . ($isFreshInstall ? 'yes' : 'no') . ", token_length: {$sessionTokenLength}");
         error_log("Session token preview (first 10, last 10): " . substr($accessToken, 0, 10) . "..." . substr($accessToken, -10));
         
-        // Validate session token length
-        if ($sessionTokenLength < 40) {
+        // Validate session token length (minimum 38 chars)
+        if ($sessionTokenLength < 38) {
             error_log("CRITICAL: Session token too short for shop: {$shop}. Length: {$sessionTokenLength}");
             // Clear invalid token from session
             unset($_SESSION[$tempTokenKey]);
@@ -98,9 +98,9 @@ if (empty($accessToken)) {
     error_log("Using token from database for shop: {$shop}, token_source: {$tokenSource}, token_length: {$tokenLength}");
     error_log("DB token preview (first 10, last 10): " . substr($accessToken, 0, 10) . "..." . substr($accessToken, -10));
     
-    // Validate token length - if too short, it's likely truncated
-    if ($tokenLength < 40) {
-        error_log("CRITICAL: Token retrieved from database is too short for shop: {$shop}. Length: {$tokenLength}, expected at least 40 characters.");
+    // Validate token length - minimum 38 chars for Shopify tokens (shpat_ + 32 chars = 38)
+    if ($tokenLength < 38) {
+        error_log("CRITICAL: Token retrieved from database is too short for shop: {$shop}. Length: {$tokenLength}, expected at least 38 characters.");
         error_log("Token appears to be truncated. Deleting shop record to force reinstall.");
         
         // Delete the corrupted record
@@ -148,9 +148,9 @@ if (!str_starts_with($accessToken, 'shpat') && !str_starts_with($accessToken, 's
     error_log("Token length: " . strlen($accessToken) . ", preview (first 10, last 10): " . substr($accessToken, 0, 10) . "..." . substr($accessToken, -10));
 }
 
-// Final token length validation before API call
+// Final token length validation before API call (minimum 38 chars)
 $finalTokenLength = strlen($accessToken);
-if ($finalTokenLength < 40) {
+if ($finalTokenLength < 38) {
     error_log("CRITICAL: Token length validation failed before API call for shop: {$shop}. Length: {$finalTokenLength}");
     http_response_code(500);
     echo "Error: Access token validation failed. Please reinstall the app.";

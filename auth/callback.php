@@ -96,10 +96,12 @@ if (!str_starts_with($accessToken, 'shpat') && !str_starts_with($accessToken, 's
     exit;
 }
 
-// Validate token length: must be at least 40 characters (Shopify tokens are typically 50-70 chars)
-if ($tokenLength < 40) {
+// Validate token length: Shopify tokens are typically 38+ characters
+// Format: shpat_<32 chars> = 38 chars minimum, or shpca_<longer> for custom apps
+// Some tokens can be longer (50-70 chars), but 38 is the minimum valid length
+if ($tokenLength < 38) {
     http_response_code(500);
-    error_log("CRITICAL: Token too short for shop: {$shop}. Length: {$tokenLength}, expected at least 40 characters.");
+    error_log("CRITICAL: Token too short for shop: {$shop}. Length: {$tokenLength}, expected at least 38 characters.");
     error_log("Token preview (first 10, last 10): " . substr($accessToken, 0, 10) . "..." . substr($accessToken, -10));
     echo "Error: Access token appears to be truncated or invalid (length: {$tokenLength}). Please try installing again.";
     echo "<br><small>If this persists, verify your API credentials in config.local.php match your Shopify Partners dashboard.</small>";
@@ -268,8 +270,8 @@ try {
         error_log("Original token preview (first 10, last 10): " . substr($accessToken, 0, 10) . "..." . substr($accessToken, -10));
         error_log("Saved token preview (first 10, last 10): " . substr($savedToken, 0, 10) . "..." . substr($savedToken, -10));
         
-        // Validate saved token before using it
-        if (strlen($savedToken) < 40) {
+        // Validate saved token before using it (minimum 38 chars for Shopify tokens)
+        if (strlen($savedToken) < 38) {
             error_log("CRITICAL: Saved token is too short ({$savedTokenLength} chars). Token may have been truncated in database.");
             http_response_code(500);
             echo "Error: Access token was truncated during storage. Please try installing again.";
@@ -281,8 +283,8 @@ try {
         $accessToken = $savedToken;
     }
     
-    // Final validation of token before proceeding
-    if (strlen($accessToken) < 40) {
+    // Final validation of token before proceeding (minimum 38 chars)
+    if (strlen($accessToken) < 38) {
         error_log("CRITICAL: Token validation failed after database retrieval for shop: {$shop}. Length: " . strlen($accessToken));
         http_response_code(500);
         echo "Error: Access token validation failed. Please try installing again.";
@@ -295,8 +297,8 @@ try {
     // Continue anyway - the token should be saved
 }
 
-// Validate token is still valid before registering webhooks
-if (empty($accessToken) || strlen($accessToken) < 40) {
+// Validate token is still valid before registering webhooks (minimum 38 chars)
+if (empty($accessToken) || strlen($accessToken) < 38) {
     error_log("CRITICAL: Token invalid before webhook registration for shop: {$shop}. Length: " . strlen($accessToken));
     http_response_code(500);
     echo "Error: Access token validation failed before webhook registration. Please try installing again.";
@@ -394,8 +396,8 @@ $_SESSION['shopify_temp_token_' . $shop] = $accessToken;
 $_SESSION['shopify_temp_token_time_' . $shop] = time();
 $_SESSION['shopify_install_complete_' . $shop] = true; // Flag to indicate fresh installation
 
-// Final validation before storing in session
-if (empty($accessToken) || strlen($accessToken) < 40) {
+// Final validation before storing in session (minimum 38 chars)
+if (empty($accessToken) || strlen($accessToken) < 38) {
     error_log("CRITICAL: Token invalid before session storage for shop: {$shop}. Length: " . strlen($accessToken));
     http_response_code(500);
     echo "Error: Access token validation failed. Please try installing again.";
