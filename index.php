@@ -44,9 +44,20 @@ if (isset($_SESSION[$tempTokenKey]) && isset($_SESSION[$tempTokenTimeKey])) {
         $accessToken = trim($_SESSION[$tempTokenKey]);
         $tokenSource = 'session';
         $isFreshInstall = isset($_SESSION[$installCompleteKey]) && $_SESSION[$installCompleteKey] === true;
+        $sessionTokenLength = strlen($accessToken);
         
-        error_log("Using temporary token from session for shop: {$shop}, token_age: {$tokenAge}s, fresh_install: " . ($isFreshInstall ? 'yes' : 'no'));
-        error_log("Session token preview (first 5, last 5): " . substr($accessToken, 0, 5) . "..." . substr($accessToken, -5));
+        error_log("Using temporary token from session for shop: {$shop}, token_age: {$tokenAge}s, fresh_install: " . ($isFreshInstall ? 'yes' : 'no') . ", token_length: {$sessionTokenLength}");
+        error_log("Session token preview (first 10, last 10): " . substr($accessToken, 0, 10) . "..." . substr($accessToken, -10));
+        
+        // Validate session token length
+        if ($sessionTokenLength < 40) {
+            error_log("CRITICAL: Session token too short for shop: {$shop}. Length: {$sessionTokenLength}");
+            // Clear invalid token from session
+            unset($_SESSION[$tempTokenKey]);
+            unset($_SESSION[$tempTokenTimeKey]);
+            unset($_SESSION[$installCompleteKey]);
+            $accessToken = null; // Force database lookup
+        }
         
         // Clear the temporary token after use
         unset($_SESSION[$tempTokenKey]);
@@ -81,6 +92,32 @@ if (empty($accessToken)) {
     
     $accessToken = trim($row['access_token'] ?? '');
     $tokenSource = 'database';
+    $tokenLength = strlen($accessToken);
+    
+    // Enhanced logging for token retrieval
+    error_log("Using token from database for shop: {$shop}, token_source: {$tokenSource}, token_length: {$tokenLength}");
+    error_log("DB token preview (first 10, last 10): " . substr($accessToken, 0, 10) . "..." . substr($accessToken, -10));
+    
+    // Validate token length - if too short, it's likely truncated
+    if ($tokenLength < 40) {
+        error_log("CRITICAL: Token retrieved from database is too short for shop: {$shop}. Length: {$tokenLength}, expected at least 40 characters.");
+        error_log("Token appears to be truncated. Deleting shop record to force reinstall.");
+        
+        // Delete the corrupted record
+        try {
+            $deleteStmt = $db->prepare('DELETE FROM shops WHERE shop_domain = :shop');
+            $deleteStmt->execute(['shop' => $shop]);
+            error_log("Deleted corrupted shop record for: {$shop}");
+        } catch (Exception $e) {
+            error_log("Failed to delete corrupted shop record: " . $e->getMessage());
+        }
+        
+        http_response_code(500);
+        echo "Error: Access token appears to be corrupted or truncated (length: {$tokenLength}).";
+        echo "<br><small>The shop record has been removed. Please reinstall the app.</small>";
+        echo "<br><br><a href='/install.php?shop=" . urlencode($shop) . "'>Reinstall the app</a>";
+        exit;
+    }
     
     // Check if this is a fresh install (within last 30 seconds)
     $installTimestamp = $row['last_reinstalled_at'] ?? $row['installed_at'] ?? null;
@@ -94,9 +131,6 @@ if (empty($accessToken)) {
             error_log("Fresh install detected for shop: {$shop}, installed {$secondsSinceInstall}s ago");
         }
     }
-    
-    error_log("Using token from database for shop: {$shop}, token_source: {$tokenSource}");
-    error_log("DB token preview (first 5, last 5): " . substr($accessToken, 0, 5) . "..." . substr($accessToken, -5));
 }
 
 // Verify access token exists
@@ -110,12 +144,23 @@ if (empty($accessToken)) {
 
 // Validate token format
 if (!str_starts_with($accessToken, 'shpat') && !str_starts_with($accessToken, 'shpca')) {
-    error_log("WARNING: Token format unexpected for shop: {$shop}, starts with: " . substr($accessToken, 0, 5));
+    error_log("WARNING: Token format unexpected for shop: {$shop}, starts with: " . substr($accessToken, 0, 10));
+    error_log("Token length: " . strlen($accessToken) . ", preview (first 10, last 10): " . substr($accessToken, 0, 10) . "..." . substr($accessToken, -10));
+}
+
+// Final token length validation before API call
+$finalTokenLength = strlen($accessToken);
+if ($finalTokenLength < 40) {
+    error_log("CRITICAL: Token length validation failed before API call for shop: {$shop}. Length: {$finalTokenLength}");
+    http_response_code(500);
+    echo "Error: Access token validation failed. Please reinstall the app.";
+    echo "<br><br><a href='/install.php?shop=" . urlencode($shop) . "'>Reinstall the app</a>";
+    exit;
 }
 
 // Log token info for debugging (don't log the actual token!)
-error_log("Loading shop info for {$shop}, token_source: {$tokenSource}, token_length: " . strlen($accessToken));
-error_log("Token preview (first 5, last 5): " . substr($accessToken, 0, 5) . "..." . substr($accessToken, -5));
+error_log("Loading shop info for {$shop}, token_source: {$tokenSource}, token_length: {$finalTokenLength}");
+error_log("Token preview (first 10, last 10): " . substr($accessToken, 0, 10) . "..." . substr($accessToken, -10));
 
 // Update daily usage tracking
 SubscriptionHelper::updateUsage($shop);

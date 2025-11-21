@@ -31,9 +31,21 @@ class ShopifyClient
         if ($accessToken) {
             // Trim whitespace from token
             $accessToken = trim($accessToken);
-            error_log("Successfully obtained access token for shop: {$shop}, length: " . strlen($accessToken));
+            $tokenLength = strlen($accessToken);
+            error_log("Successfully obtained access token for shop: {$shop}, length: {$tokenLength}");
+            error_log("Token preview (first 10, last 10): " . substr($accessToken, 0, 10) . "..." . substr($accessToken, -10));
+            
+            // Validate token length from Shopify response
+            if ($tokenLength < 40) {
+                error_log("WARNING: Token from Shopify is shorter than expected for shop: {$shop}. Length: {$tokenLength}, expected at least 40 characters.");
+            }
         } else {
             error_log("Access token not found in response for shop: {$shop}. Response: " . substr($response['body'], 0, 200));
+            // Log full response body for debugging (truncated)
+            if (!empty($response['body'])) {
+                $responsePreview = json_decode($response['body'], true);
+                error_log("Response keys: " . implode(', ', array_keys($responsePreview ?? [])));
+            }
         }
         
         return $accessToken;
