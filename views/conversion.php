@@ -207,6 +207,28 @@
             padding: 40px;
             color: #6d7175;
         }
+        .export-btn {
+            display: inline-block;
+            padding: 8px 16px;
+            background: #008060;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-bottom: 16px;
+        }
+        .export-btn:hover {
+            background: #006e52;
+            color: white;
+            text-decoration: none;
+        }
+        .export-btn:active {
+            background: #005e46;
+        }
     </style>
 </head>
 <body>
@@ -287,6 +309,22 @@
             <?php if (empty($orderData)): ?>
                 <div class="info">No orders found for the selected date range.</div>
             <?php else: ?>
+                <?php
+                // Build export URL with current query parameters
+                $exportParams = [
+                    'shop' => $shop,
+                ];
+                if ($dateRange) {
+                    $exportParams['range'] = $dateRange;
+                } else {
+                    $exportParams['start_date'] = date('Y-m-d', strtotime($startDate));
+                    $exportParams['end_date'] = date('Y-m-d', strtotime($endDate));
+                }
+                $exportUrl = '/export.php?' . http_build_query($exportParams);
+                ?>
+                <a href="<?= htmlspecialchars($exportUrl, ENT_QUOTES, 'UTF-8') ?>" class="export-btn" target="_blank">
+                    Export to CSV
+                </a>
                 <table>
                     <thead>
                         <tr>

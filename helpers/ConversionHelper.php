@@ -314,5 +314,60 @@ GRAPHQL;
         }
         return date('Y-m-d\TH:i:s\Z', $timestamp);
     }
+
+    /**
+     * Generate CSV content from order data
+     * 
+     * @param array $orderData Array of order data arrays
+     * @return string CSV content
+     */
+    public static function generateCSV(array $orderData): string
+    {
+        if (empty($orderData)) {
+            return '';
+        }
+
+        // Open output buffer for CSV generation
+        $output = fopen('php://temp', 'r+');
+
+        // CSV Headers
+        $headers = [
+            'Order Number',
+            'Order Date',
+            'Total Amount',
+            'Currency',
+            'Campaign',
+            'Source',
+            'Medium',
+            'Referring Site',
+            'Category',
+            'Order URL',
+        ];
+        fputcsv($output, $headers);
+
+        // Add data rows
+        foreach ($orderData as $order) {
+            $row = [
+                $order['number'] ?? '',
+                $order['date'] ?? '',
+                $order['total_amount'] ?? 0,
+                $order['currency'] ?? '',
+                $order['campaign'] ?? 'N/A',
+                $order['source'] ?? 'N/A',
+                $order['medium'] ?? 'N/A',
+                $order['referring_site'] ?? 'N/A',
+                $order['category'] ?? 'Other',
+                $order['url'] ?? '',
+            ];
+            fputcsv($output, $row);
+        }
+
+        // Get CSV content
+        rewind($output);
+        $csvContent = stream_get_contents($output);
+        fclose($output);
+
+        return $csvContent;
+    }
 }
 
