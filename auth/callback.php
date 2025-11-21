@@ -196,11 +196,15 @@ try {
     // List existing webhooks to avoid duplicates
     $existingWebhooks = ShopifyClient::listWebhooks($shop, $accessToken);
     $existingTopics = [];
+    $existingComplianceTopics = [];
     
     if ($existingWebhooks['status'] === 200 && isset($existingWebhooks['body']['webhooks'])) {
         foreach ($existingWebhooks['body']['webhooks'] as $webhook) {
             if ($webhook['address'] === $webhookBaseUrl . '/webhooks/charges.php') {
                 $existingTopics[] = $webhook['topic'];
+            }
+            if ($webhook['address'] === $webhookBaseUrl . '/webhooks/compliance.php') {
+                $existingComplianceTopics[] = $webhook['topic'];
             }
         }
     }
@@ -241,6 +245,27 @@ try {
             }
         } else {
             error_log("{$topic} webhook already exists for shop: {$shop}");
+        }
+    }
+    
+    // Register mandatory compliance webhooks (required for App Store listing)
+    $complianceTopics = ['customers/data_request', 'customers/redact', 'shop/redact'];
+    foreach ($complianceTopics as $topic) {
+        if (!in_array($topic, $existingComplianceTopics)) {
+            $webhookResponse = ShopifyClient::createWebhook(
+                $shop,
+                $accessToken,
+                $topic,
+                $webhookBaseUrl . '/webhooks/compliance.php'
+            );
+            
+            if ($webhookResponse['status'] === 201) {
+                error_log("Successfully registered {$topic} compliance webhook for shop: {$shop}");
+            } else {
+                error_log("Failed to register {$topic} compliance webhook for shop: {$shop}, status: {$webhookResponse['status']}, response: " . substr($webhookResponse['raw'] ?? '', 0, 200));
+            }
+        } else {
+            error_log("{$topic} compliance webhook already exists for shop: {$shop}");
         }
     }
 } catch (Exception $e) {

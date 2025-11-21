@@ -36,12 +36,26 @@
   - [ ] Verify shop info displays correctly
   - [ ] Verify App Bridge integration works
 
+## Compliance Webhooks (Mandatory for App Store Listing)
+
+- [ ] Verify compliance webhooks are registered during installation:
+  - [ ] `customers/data_request` - Customer data requests
+  - [ ] `customers/redact` - Customer data deletion requests
+  - [ ] `shop/redact` - Shop data deletion (48 hours after uninstall)
+- [ ] Test compliance webhook endpoints:
+  - [ ] Verify HMAC verification works correctly
+  - [ ] Test each webhook topic with sample payloads
+  - [ ] Verify webhooks return 200 status codes
+  - [ ] Verify `shop/redact` deletes shop data correctly
+- [ ] Note: These webhooks are mandatory for apps with access to customer/order data
+
 ## Deployment
 
 - [ ] Ensure HTTPS is configured (required for Shopify apps)
 - [ ] Verify `config.local.php` is not committed to git (should be in `.gitignore`)
 - [ ] Test production OAuth flow
 - [ ] Verify database connection works on production server
+- [ ] Verify compliance webhooks are registered and accessible via HTTPS
 
 ## Notes
 
