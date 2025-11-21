@@ -242,11 +242,6 @@ if ($response['status'] !== 200) {
     exit;
 }
 
-$shopInfo  = $response['body']['shop'] ?? [];
-$shopName  = $shopInfo['name'] ?? $shop;
-$shopEmail = $shopInfo['email'] ?? '';
-
-// Get plan status
-$planStatus = SubscriptionHelper::getPlanStatus($shop);
-
-require __DIR__ . '/views/embedded.php';
+// Redirect to conversion data page (new home screen)
+header('Location: /conversion.php?shop=' . urlencode($shop));
+exit;

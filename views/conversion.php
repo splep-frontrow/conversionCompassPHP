@@ -23,10 +23,72 @@
             background: #f6f6f7;
             color: #202223;
         }
+        .app-container {
+            display: flex;
+            min-height: 100vh;
+        }
+        .sidebar {
+            width: 240px;
+            background: #ffffff;
+            border-right: 1px solid #e1e3e5;
+            padding: 24px 0;
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+        }
+        .sidebar h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #202223;
+            padding: 0 24px;
+            margin: 0 0 16px 0;
+        }
+        .nav-section {
+            margin-bottom: 24px;
+        }
+        .nav-item {
+            display: block;
+            padding: 8px 24px;
+            color: #6d7175;
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: background 0.2s;
+        }
+        .nav-item:hover {
+            background: #f6f6f7;
+            color: #202223;
+        }
+        .nav-item.active {
+            background: #e7f5f0;
+            color: #008060;
+            font-weight: 500;
+            border-left: 3px solid #008060;
+        }
+        .nav-subitem {
+            display: block;
+            padding: 6px 24px 6px 48px;
+            color: #6d7175;
+            text-decoration: none;
+            font-size: 0.875rem;
+            transition: background 0.2s;
+        }
+        .nav-subitem:hover {
+            background: #f6f6f7;
+            color: #202223;
+        }
+        .nav-subitem.active {
+            color: #008060;
+            font-weight: 500;
+        }
+        .main-content {
+            flex: 1;
+            margin-left: 240px;
+            padding: 24px;
+        }
         .container {
             max-width: 1400px;
             margin: 0 auto;
-            padding: 24px;
+            padding: 0;
         }
         .card {
             background: #ffffff;
@@ -183,25 +245,6 @@
             border-radius: 4px;
             color: #155724;
         }
-        .nav-links {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 24px;
-        }
-        .nav-link {
-            padding: 8px 16px;
-            background: #ffffff;
-            border: 1px solid #c9cccf;
-            border-radius: 4px;
-            text-decoration: none;
-            color: #202223;
-            font-size: 0.9rem;
-            transition: all 0.2s;
-        }
-        .nav-link:hover {
-            background: #f6f6f7;
-            border-color: #008060;
-        }
         .loading {
             text-align: center;
             padding: 40px;
@@ -232,13 +275,18 @@
     </style>
 </head>
 <body>
-<div class="container">
-    <div class="nav-links">
-        <a href="/index.php?shop=<?= urlencode($shop) ?>" class="nav-link">Home</a>
-        <a href="/conversion.php?shop=<?= urlencode($shop) ?>" class="nav-link">Conversion Data</a>
-        <a href="/subscription.php?shop=<?= urlencode($shop) ?>" class="nav-link">Subscription</a>
+<div class="app-container">
+    <div class="sidebar">
+        <h2>Conversion Compass</h2>
+        <div class="nav-section">
+            <a href="/conversion.php?shop=<?= urlencode($shop) ?>" class="nav-item active">Conversion Data</a>
+            <a href="/about.php?shop=<?= urlencode($shop) ?>" class="nav-item">About</a>
+            <a href="/subscription.php?shop=<?= urlencode($shop) ?>" class="nav-item">Subscription</a>
+        </div>
     </div>
     
+    <div class="main-content">
+        <div class="container">
     <div class="card">
         <h1>Order Conversion Data</h1>
         <p>Store: <strong><?= htmlspecialchars($shopName, ENT_QUOTES, 'UTF-8') ?></strong></p>
@@ -360,6 +408,8 @@
     <?php elseif (!$startDate || !$endDate): ?>
         <div class="info">Please select a date range to view conversion data.</div>
     <?php endif; ?>
+    </div>
+    </div>
 </div>
 
 <script>
