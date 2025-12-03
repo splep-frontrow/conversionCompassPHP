@@ -11,6 +11,29 @@
     <!-- Shopify App Bridge -->
     <meta name="shopify-api-key" content="<?= htmlspecialchars(SHOPIFY_API_KEY, ENT_QUOTES, 'UTF-8') ?>" />
     <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+    <script>
+        // Initialize App Bridge immediately when script loads
+        (function() {
+            if (typeof window['app-bridge'] === 'undefined') {
+                return;
+            }
+            var AppBridge = window['app-bridge'];
+            var params = new URLSearchParams(window.location.search);
+            var shop = params.get('shop');
+            var host = params.get('host');
+            
+            var appConfig = {
+                apiKey: "<?= htmlspecialchars(SHOPIFY_API_KEY, ENT_QUOTES, 'UTF-8') ?>",
+                shopOrigin: shop
+            };
+            
+            if (host) {
+                appConfig.host = host;
+            }
+            
+            window.shopifyApp = AppBridge.createApp(appConfig);
+        })();
+    </script>
     
     <style>
         * {
@@ -417,22 +440,18 @@
 
 <script>
     (function() {
+        var app = window.shopifyApp;
+        if (!app) {
+            return;
+        }
+
         var AppBridge = window['app-bridge'];
         if (!AppBridge) {
             return;
         }
 
-        var createApp = AppBridge.createApp;
         var actions = AppBridge.actions;
         var TitleBar = actions.TitleBar;
-
-        var params = new URLSearchParams(window.location.search);
-        var shop = params.get('shop');
-
-        var app = createApp({
-            apiKey: "<?= htmlspecialchars(SHOPIFY_API_KEY, ENT_QUOTES, 'UTF-8') ?>",
-            shopOrigin: shop
-        });
 
         TitleBar.create(app, { title: 'Conversion Compass' });
     })();
