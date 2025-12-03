@@ -13,15 +13,15 @@
     <script>
         // Define initialization function BEFORE loading the script
         function initializeAppBridge() {
-            // Wait for App Bridge to be available (it may load asynchronously)
+            // Wait for Shopify CDN to be available
             var attempts = 0;
             var maxAttempts = 50; // 5 seconds max wait
             
             function tryInit() {
                 attempts++;
                 
-                if (typeof window['app-bridge'] !== 'undefined') {
-                    var AppBridge = window['app-bridge'];
+                // Shopify CDN exposes initializeAppBridge function
+                if (window.shopify && typeof window.shopify.initializeAppBridge === 'function') {
                     var params = new URLSearchParams(window.location.search);
                     var shop = params.get('shop');
                     var host = params.get('host');
@@ -39,12 +39,20 @@
                         appConfig.host = host;
                     }
                     
-                    try {
-                        window.shopifyApp = AppBridge.createApp(appConfig);
-                        console.log('✓ App Bridge initialized successfully');
-                    } catch (error) {
-                        console.error('✗ Error creating App Bridge app:', error);
-                    }
+                    // Shopify CDN initializeAppBridge returns a promise
+                    window.shopify.initializeAppBridge(appConfig)
+                        .then(function(app) {
+                            window.shopifyApp = app;
+                            // Also expose AppBridge for compatibility
+                            window['app-bridge'] = {
+                                actions: app.actions || {},
+                                utils: app.utils || {}
+                            };
+                            console.log('✓ App Bridge initialized successfully');
+                        })
+                        .catch(function(error) {
+                            console.error('✗ Error initializing App Bridge:', error);
+                        });
                 } else if (attempts < maxAttempts) {
                     setTimeout(tryInit, 100);
                 } else {
@@ -200,39 +208,52 @@
 
 <script>
     (function() {
-        var app = window.shopifyApp;
-        if (!app) {
-            console.warn('App Bridge app instance not found');
-            return;
-        }
-
-        var AppBridge = window['app-bridge'];
-        if (!AppBridge) {
-            console.warn('App Bridge not available');
-            return;
-        }
-
-        var actions = AppBridge.actions;
-        var TitleBar = actions.TitleBar;
-
-        TitleBar.create(app, { title: 'Conversion Compass' });
-
-        // Test session token functionality after page load
-        // This helps verify App Bridge is sending session tokens
+        // Wait for App Bridge to initialize
         setTimeout(function() {
-            var params = new URLSearchParams(window.location.search);
-            var shop = params.get('shop');
-            var host = params.get('host');
-            
-            console.log('App Bridge Debug Info:', {
-                appInitialized: !!app,
-                shop: shop,
-                host: host,
-                hasHost: !!host,
-                appBridgeVersion: AppBridge.version || 'unknown',
-                appBridgeUtils: typeof AppBridge.utils !== 'undefined',
-                windowLocation: window.location.href
-            });
+            var app = window.shopifyApp;
+            if (!app) {
+                console.warn('App Bridge app instance not found');
+                return;
+            }
+
+            // Get actions from app instance (CDN version)
+            if (!app.actions) {
+                console.warn('App Bridge actions not available');
+                return;
+            }
+
+            var TitleBar = app.actions.TitleBar;
+            if (!TitleBar) {
+                console.warn('TitleBar action not available');
+                return;
+            }
+
+            TitleBar.create(app, { title: 'Conversion Compass' });
+
+            // Test session token functionality after page load
+            // This helps verify App Bridge is sending session tokens
+            setTimeout(function() {
+                // Re-check app instance
+                app = window.shopifyApp;
+                if (!app) {
+                    console.error('App Bridge app instance still not found after delay');
+                    return;
+                }
+                
+                var params = new URLSearchParams(window.location.search);
+                var shop = params.get('shop');
+                var host = params.get('host');
+                
+                console.log('=== APP BRIDGE DEBUG INFO ===');
+                console.log('App Bridge Debug Info:', {
+                    appInitialized: !!app,
+                    shop: shop,
+                    host: host,
+                    hasHost: !!host,
+                    appBridgeVersion: app.version || 'unknown',
+                    appBridgeUtils: typeof app.utils !== 'undefined',
+                    windowLocation: window.location.href
+                });
 
             // Critical: Check if host parameter is present
             if (!host) {
@@ -251,22 +272,24 @@
                 // Try different ways to get session token depending on App Bridge version
                 var getTokenPromise = null;
                 
-                // Method 1: Check if getSessionToken is available in utils
-                if (AppBridge.utils && typeof AppBridge.utils.getSessionToken === 'function') {
-                    getTokenPromise = AppBridge.utils.getSessionToken(app);
+                // Method 1: Check if getSessionToken is available in app.utils (CDN version)
+                if (app.utils && typeof app.utils.getSessionToken === 'function') {
+                    console.log('Using app.utils.getSessionToken');
+                    getTokenPromise = app.utils.getSessionToken();
                 }
-                // Method 2: Check if it's available directly on AppBridge
-                else if (typeof AppBridge.getSessionToken === 'function') {
-                    getTokenPromise = AppBridge.getSessionToken(app);
+                // Method 2: Check if it's available in window.shopify
+                else if (window.shopify && window.shopify.utils && typeof window.shopify.utils.getSessionToken === 'function') {
+                    console.log('Using window.shopify.utils.getSessionToken');
+                    getTokenPromise = window.shopify.utils.getSessionToken();
                 }
-                // Method 3: Check if fetch is wrapped by App Bridge
+                // Method 3: Check if fetch is wrapped by App Bridge CDN (it should auto-inject tokens)
                 else {
-                    console.warn('getSessionToken not found. App Bridge CDN may handle tokens automatically.');
-                    // Try a regular fetch - App Bridge CDN might intercept it
+                    console.warn('getSessionToken not found. App Bridge CDN should handle tokens automatically.');
+                    // Try a regular fetch - App Bridge CDN should intercept it and add session token
                     fetch(testUrl)
                         .then(function(response) { return response.json(); })
                         .then(function(data) {
-                            console.log('Fetch test result (App Bridge may auto-inject tokens):', data);
+                            console.log('Fetch test result (App Bridge CDN should auto-inject tokens):', data);
                             if (data.success) {
                                 console.log('✓ Session tokens are working!');
                             } else {
@@ -312,7 +335,8 @@
             } else {
                 console.warn('Cannot test session tokens - missing shop or host parameter');
             }
-        }, 1000);
+            }, 1000);
+        }, 500); // Initial delay to let App Bridge initialize
     })();
 </script>
 </body>

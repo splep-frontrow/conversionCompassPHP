@@ -109,15 +109,15 @@ $shopName = $shopInfo['name'] ?? $shop;
     <script>
         // Define initialization function BEFORE loading the script
         function initializeAppBridge() {
-            // Wait for App Bridge to be available (it may load asynchronously)
+            // Wait for Shopify CDN to be available
             var attempts = 0;
             var maxAttempts = 50; // 5 seconds max wait
             
             function tryInit() {
                 attempts++;
                 
-                if (typeof window['app-bridge'] !== 'undefined') {
-                    var AppBridge = window['app-bridge'];
+                // Shopify CDN exposes initializeAppBridge function
+                if (window.shopify && typeof window.shopify.initializeAppBridge === 'function') {
                     var params = new URLSearchParams(window.location.search);
                     var shop = params.get('shop');
                     var host = params.get('host');
@@ -131,12 +131,20 @@ $shopName = $shopInfo['name'] ?? $shop;
                         appConfig.host = host;
                     }
                     
-                    try {
-                        window.shopifyApp = AppBridge.createApp(appConfig);
-                        console.log('✓ App Bridge initialized successfully');
-                    } catch (error) {
-                        console.error('✗ Error creating App Bridge app:', error);
-                    }
+                    // Shopify CDN initializeAppBridge returns a promise
+                    window.shopify.initializeAppBridge(appConfig)
+                        .then(function(app) {
+                            window.shopifyApp = app;
+                            // Also expose AppBridge for compatibility
+                            window['app-bridge'] = {
+                                actions: app.actions || {},
+                                utils: app.utils || {}
+                            };
+                            console.log('✓ App Bridge initialized successfully');
+                        })
+                        .catch(function(error) {
+                            console.error('✗ Error initializing App Bridge:', error);
+                        });
                 } else if (attempts < maxAttempts) {
                     setTimeout(tryInit, 100);
                 } else {
@@ -432,20 +440,25 @@ $shopName = $shopInfo['name'] ?? $shop;
 
 <script>
     (function() {
-        var app = window.shopifyApp;
-        if (!app) {
-            return;
-        }
+        // Wait for App Bridge to initialize
+        setTimeout(function() {
+            var app = window.shopifyApp;
+            if (!app) {
+                return;
+            }
 
-        var AppBridge = window['app-bridge'];
-        if (!AppBridge) {
-            return;
-        }
+            // Get actions from app instance (CDN version)
+            if (!app.actions) {
+                return;
+            }
 
-        var actions = AppBridge.actions;
-        var TitleBar = actions.TitleBar;
+            var TitleBar = app.actions.TitleBar;
+            if (!TitleBar) {
+                return;
+            }
 
-        TitleBar.create(app, { title: 'Subscription Management' });
+            TitleBar.create(app, { title: 'Subscription Management' });
+        }, 500);
     })();
 </script>
 </body>
