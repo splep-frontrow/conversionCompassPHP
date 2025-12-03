@@ -20,18 +20,27 @@ class SessionTokenHelper
     {
         // Try X-Shopify-Session-Token header first (standard for embedded apps)
         $headers = getallheaders();
+        
+        // Enhanced logging for debugging
+        error_log("SessionTokenHelper: Checking headers. Available headers: " . implode(', ', array_keys($headers)));
+        
         if (isset($headers['X-Shopify-Session-Token'])) {
-            return trim($headers['X-Shopify-Session-Token']);
+            $token = trim($headers['X-Shopify-Session-Token']);
+            error_log("SessionTokenHelper: Found X-Shopify-Session-Token header, length: " . strlen($token));
+            return $token;
         }
         
         // Also check Authorization header (Bearer token)
         if (isset($headers['Authorization'])) {
             $authHeader = $headers['Authorization'];
             if (preg_match('/Bearer\s+(.+)$/i', $authHeader, $matches)) {
-                return trim($matches[1]);
+                $token = trim($matches[1]);
+                error_log("SessionTokenHelper: Found Authorization Bearer token, length: " . strlen($token));
+                return $token;
             }
         }
         
+        error_log("SessionTokenHelper: No session token found. Checked X-Shopify-Session-Token and Authorization headers.");
         return null;
     }
 

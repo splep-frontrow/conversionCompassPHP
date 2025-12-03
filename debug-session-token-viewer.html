@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Session Token Debug Viewer</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            margin-top: 0;
+            color: #202223;
+        }
+        .status {
+            padding: 12px;
+            border-radius: 4px;
+            margin: 16px 0;
+            font-weight: 500;
+        }
+        .status.pass {
+            background: #e7f5f0;
+            color: #008060;
+            border-left: 4px solid #008060;
+        }
+        .status.fail {
+            background: #ffebee;
+            color: #d72c0d;
+            border-left: 4px solid #d72c0d;
+        }
+        .section {
+            margin: 24px 0;
+            padding: 16px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        .section h2 {
+            margin-top: 0;
+            font-size: 1.1rem;
+            color: #202223;
+        }
+        .check-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #e1e3e5;
+        }
+        .check-item:last-child {
+            border-bottom: none;
+        }
+        .check-item strong {
+            display: inline-block;
+            width: 200px;
+            color: #6d7175;
+        }
+        code {
+            background: #f4f6f8;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+        .recommendations {
+            background: #fff4e5;
+            border-left: 4px solid #f57c00;
+            padding: 16px;
+            margin: 16px 0;
+        }
+        .recommendations h3 {
+            margin-top: 0;
+            color: #e65100;
+        }
+        .recommendations ul {
+            margin: 8px 0;
+            padding-left: 20px;
+        }
+        .recommendations li {
+            margin: 4px 0;
+        }
+        pre {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 16px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 0.85em;
+        }
+        .refresh-btn {
+            background: #008060;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+            margin-bottom: 20px;
+        }
+        .refresh-btn:hover {
+            background: #006e52;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Session Token Debug Information</h1>
+        <button class="refresh-btn" onclick="loadDebugInfo()">Refresh Debug Info</button>
+        
+        <div id="loading">Loading debug information...</div>
+        <div id="debug-output" style="display: none;"></div>
+    </div>
+
+    <script>
+        function loadDebugInfo() {
+            const shop = new URLSearchParams(window.location.search).get('shop') || 'yourstore.myshopify.com';
+            const url = `/debug-session-token.php?shop=${encodeURIComponent(shop)}`;
+            
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('debug-output').style.display = 'none';
+            
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    displayDebugInfo(data);
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('debug-output').style.display = 'block';
+                })
+                .catch(error => {
+                    document.getElementById('loading').innerHTML = 
+                        '<div class="status fail">Error loading debug info: ' + error.message + '</div>';
+                });
+        }
+
+        function displayDebugInfo(data) {
+            const output = document.getElementById('debug-output');
+            let html = '';
+
+            // Overall Status
+            const statusClass = data.overall_status === 'PASS' ? 'pass' : 'fail';
+            html += `<div class="status ${statusClass}">
+                <strong>Overall Status:</strong> ${data.overall_status}
+            </div>`;
+
+            // Summary
+            html += '<div class="section"><h2>Summary</h2>';
+            for (const [key, value] of Object.entries(data.summary)) {
+                const statusClass = value === 'OK' ? 'pass' : 'fail';
+                html += `<div class="check-item">
+                    <strong>${key.replace(/_/g, ' ')}:</strong> 
+                    <span class="status ${statusClass}" style="display: inline-block; padding: 2px 8px; margin-left: 8px;">${value}</span>
+                </div>`;
+            }
+            html += '</div>';
+
+            // JWT Library
+            html += '<div class="section"><h2>JWT Library</h2>';
+            html += `<div class="check-item"><strong>Autoloader exists:</strong> ${data.jwt_library.autoloader_exists ? 'Yes' : 'No'}</div>`;
+            html += `<div class="check-item"><strong>Firebase JWT class:</strong> ${data.jwt_library.firebase_jwt_class_exists ? 'Available' : 'Missing'}</div>`;
+            html += `<div class="check-item"><strong>Status:</strong> ${data.jwt_library.status}</div>`;
+            html += '</div>';
+
+            // Headers
+            html += '<div class="section"><h2>Request Headers</h2>';
+            html += `<div class="check-item"><strong>X-Shopify-Session-Token:</strong> ${data.headers.has_x_shopify_session_token ? 'Present (' + data.headers.x_shopify_session_token_length + ' chars)' : 'Missing'}</div>`;
+            html += `<div class="check-item"><strong>Authorization header:</strong> ${data.headers.has_authorization ? 'Present' : 'Missing'}</div>`;
+            html += `<div class="check-item"><strong>All headers:</strong> ${data.headers.all_headers.join(', ')}</div>`;
+            html += '</div>';
+
+            // Session Token
+            html += '<div class="section"><h2>Session Token</h2>';
+            html += `<div class="check-item"><strong>Extracted:</strong> ${data.session_token.extracted ? 'Yes' : 'No'}</div>`;
+            if (data.session_token.extracted) {
+                html += `<div class="check-item"><strong>Length:</strong> ${data.session_token.token_length} characters</div>`;
+                html += `<div class="check-item"><strong>Source:</strong> ${data.session_token.source || 'Unknown'}</div>`;
+                if (data.session_token.validation) {
+                    html += `<div class="check-item"><strong>Valid:</strong> ${data.session_token.validation.valid ? 'Yes' : 'No'}</div>`;
+                    html += `<div class="check-item"><strong>Shop matches:</strong> ${data.session_token.validation.shop_match ? 'Yes' : 'No'}</div>`;
+                    html += `<div class="check-item"><strong>API key matches:</strong> ${data.session_token.validation.api_key_match ? 'Yes' : 'No'}</div>`;
+                    if (data.session_token.validation.expiration) {
+                        html += `<div class="check-item"><strong>Expires:</strong> ${data.session_token.validation.expiration}</div>`;
+                        html += `<div class="check-item"><strong>Expired:</strong> ${data.session_token.validation.expired ? 'Yes' : 'No'}</div>`;
+                    }
+                }
+            }
+            html += '</div>';
+
+            // App Bridge
+            html += '<div class="section"><h2>App Bridge Configuration</h2>';
+            html += `<div class="check-item"><strong>Shop parameter:</strong> ${data.app_bridge.shop_param || 'Missing'}</div>`;
+            html += `<div class="check-item"><strong>Host parameter:</strong> ${data.app_bridge.host_param ? 'Present' : 'Missing'}</div>`;
+            html += `<div class="check-item"><strong>Status:</strong> ${data.app_bridge.status}</div>`;
+            html += '</div>';
+
+            // API Config
+            html += '<div class="section"><h2>API Configuration</h2>';
+            html += `<div class="check-item"><strong>API Key set:</strong> ${data.api_config.api_key_set ? 'Yes' : 'No'}</div>`;
+            html += `<div class="check-item"><strong>API Secret set:</strong> ${data.api_config.api_secret_set ? 'Yes' : 'No'}</div>`;
+            html += '</div>';
+
+            // Recommendations
+            if (data.recommendations && data.recommendations.length > 0) {
+                html += '<div class="recommendations"><h3>Recommendations</h3><ul>';
+                data.recommendations.forEach(rec => {
+                    html += `<li>${rec}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            // Next Steps
+            if (data.next_steps && data.next_steps.length > 0) {
+                html += '<div class="section"><h2>Next Steps</h2><ul>';
+                data.next_steps.forEach(step => {
+                    html += `<li>${step}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            // Raw JSON (collapsible)
+            html += '<div class="section"><h2>Raw JSON Data <button onclick="toggleRaw()" style="float: right; padding: 4px 8px; font-size: 0.8em;">Toggle</button></h2>';
+            html += `<pre id="raw-json" style="display: none;">${JSON.stringify(data, null, 2)}</pre></div>`;
+
+            output.innerHTML = html;
+        }
+
+        function toggleRaw() {
+            const raw = document.getElementById('raw-json');
+            raw.style.display = raw.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Load on page load
+        loadDebugInfo();
+    </script>
+</body>
+</html>
+
