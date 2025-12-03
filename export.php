@@ -9,6 +9,7 @@ require_once __DIR__ . '/helpers/hmac.php';
 require_once __DIR__ . '/helpers/ShopifyClient.php';
 require_once __DIR__ . '/helpers/SubscriptionHelper.php';
 require_once __DIR__ . '/helpers/ConversionHelper.php';
+require_once __DIR__ . '/helpers/SessionTokenHelper.php';
 
 $shop = isset($_GET['shop']) ? sanitize_shop_domain($_GET['shop']) : null;
 
@@ -16,6 +17,16 @@ if (!$shop) {
     http_response_code(400);
     echo "Missing or invalid 'shop' parameter.";
     exit;
+}
+
+// Validate session token if present (for embedded app compliance)
+$sessionTokenValid = false;
+$sessionTokenPayload = SessionTokenHelper::validateRequest($shop);
+if ($sessionTokenPayload !== null) {
+    $sessionTokenValid = true;
+    error_log("export.php: Session token validated successfully for shop: {$shop}");
+} else {
+    error_log("export.php: Session token validation failed or missing for shop: {$shop}, falling back to access token method");
 }
 
 $db = get_db();

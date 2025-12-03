@@ -12,6 +12,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/helpers/hmac.php';
 require_once __DIR__ . '/helpers/ShopifyClient.php';
 require_once __DIR__ . '/helpers/SubscriptionHelper.php';
+require_once __DIR__ . '/helpers/SessionTokenHelper.php';
 
 $shop = isset($_GET['shop']) ? sanitize_shop_domain($_GET['shop']) : null;
 
@@ -19,6 +20,16 @@ if (!$shop) {
     http_response_code(400);
     echo "Missing or invalid 'shop' parameter.";
     exit;
+}
+
+// Validate session token if present (for embedded app compliance)
+$sessionTokenValid = false;
+$sessionTokenPayload = SessionTokenHelper::validateRequest($shop);
+if ($sessionTokenPayload !== null) {
+    $sessionTokenValid = true;
+    error_log("subscription.php: Session token validated successfully for shop: {$shop}");
+} else {
+    error_log("subscription.php: Session token validation failed or missing for shop: {$shop}, falling back to access token method");
 }
 
 $db = get_db();
@@ -93,7 +104,9 @@ $shopName = $shopInfo['name'] ?? $shop;
     <meta charset="UTF-8">
     <title>Subscription Management</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+    <!-- Shopify App Bridge -->
+    <meta name="shopify-api-key" content="<?= htmlspecialchars(SHOPIFY_API_KEY, ENT_QUOTES, 'UTF-8') ?>" />
+    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
     <style>
         body {
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
