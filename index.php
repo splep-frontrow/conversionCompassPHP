@@ -226,10 +226,10 @@ if ($response['status'] !== 200) {
                     error_log("Failed to delete invalid shop record: " . $e->getMessage());
                 }
                 
-                // Show reinstall message (whether deletion succeeded or failed)
-                http_response_code(500);
-                echo "The app installation appears to be invalid. Please reinstall the app.";
-                echo "<br><br><a href='/install.php?shop=" . urlencode($shop) . "'>Reinstall the app</a>";
+                // Automatically redirect to install page after deleting old record
+                error_log("Redirecting to install page for shop: {$shop} after deleting old record");
+                $installUrl = '/install.php?shop=' . urlencode($shop);
+                header('Location: ' . $installUrl);
                 exit;
             } else {
                 // Fresh install (<5 minutes) - token might still be activating
