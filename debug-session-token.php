@@ -6,12 +6,20 @@ declare(strict_types=1);
  * 
  * This endpoint helps diagnose session token issues before Shopify's automated check.
  * 
+ * ⚠️ IMPORTANT: This endpoint MUST be accessed FROM WITHIN your embedded app in Shopify Admin.
+ * If accessed directly (not through Shopify Admin), it will show "FAIL" because:
+ * - No host parameter (required for App Bridge)
+ * - No session token header (App Bridge only sends it in embedded context)
+ * 
  * Usage:
  * 1. Access from within your embedded app in Shopify Admin:
- *    https://yourdomain.com/debug-session-token.php?shop=yourstore.myshopify.com
+ *    - Go to your app in Shopify Admin
+ *    - Navigate to a page (e.g., conversion.php)
+ *    - In browser console, run: fetch('/debug-session-token.php?shop=YOUR_SHOP.myshopify.com').then(r => r.json()).then(console.log)
+ *    - OR add a link in your app that opens this endpoint
  * 
- * 2. Or use the HTML viewer:
- *    https://yourdomain.com/debug-session-token-viewer.html?shop=yourstore.myshopify.com
+ * 2. Or use the HTML viewer (also must be accessed through Shopify Admin):
+ *    https://yourdomain.com/debug-session-token-viewer.html?shop=yourstore.myshopify.com&host=HOST_PARAM
  * 
  * 3. Check browser Network tab to see the JSON response
  * 
@@ -160,6 +168,16 @@ $allChecksPass =
     $debug['api_config']['api_key_set'] &&
     $debug['api_config']['api_secret_set'];
 
+// Special note if accessed directly (not through Shopify Admin)
+$isDirectAccess = !isset($queryParams['host']) && !isset($headers['X-Shopify-Session-Token']);
+if ($isDirectAccess) {
+    $debug['access_method'] = 'DIRECT';
+    $debug['warning'] = 'This endpoint was accessed directly, not through Shopify Admin. Session tokens are only sent when accessed through the embedded app context.';
+    $debug['how_to_test'] = 'To properly test session tokens, access this endpoint FROM WITHIN your embedded app in Shopify Admin. You can do this by: 1) Adding a link in your app, 2) Using fetch() from browser console while in your app, or 3) Navigating to this URL while already in your embedded app.';
+} else {
+    $debug['access_method'] = 'EMBEDDED';
+}
+
 $debug['overall_status'] = $allChecksPass ? 'PASS' : 'FAIL';
 $debug['summary'] = [
     'jwt_library' => $jwtClassExists ? 'OK' : 'FAIL',
@@ -171,16 +189,34 @@ $debug['summary'] = [
 
 // Add helpful next steps
 if ($debug['overall_status'] === 'FAIL') {
-    $debug['next_steps'] = [
-        '1. Verify JWT library is installed: composer install',
-        '2. Access app through Shopify Admin (not directly) to get host parameter',
-        '3. Check browser Network tab for X-Shopify-Session-Token header',
-        '4. Verify App Bridge is initialized in <head> with host parameter',
-        '5. Check server error logs for detailed validation messages'
-    ];
+    if ($isDirectAccess) {
+        $debug['next_steps'] = [
+            '⚠️ This endpoint was accessed DIRECTLY (not through Shopify Admin)',
+            'Session tokens are ONLY sent when accessed through the embedded app context.',
+            '',
+            'To properly test session tokens:',
+            '1. Open your app in Shopify Admin (https://admin.shopify.com/store/YOUR_STORE/apps/YOUR_APP)',
+            '2. While in your app, open browser console',
+            '3. Run: fetch("/debug-session-token.php?shop=YOUR_STORE.myshopify.com").then(r => r.json()).then(console.log)',
+            '4. OR add a link/button in your app that navigates to this endpoint',
+            '',
+            'When accessed through Shopify Admin, you should see:',
+            '- host parameter in URL',
+            '- X-Shopify-Session-Token header in request',
+            '- overall_status: PASS (if everything is configured correctly)'
+        ];
+    } else {
+        $debug['next_steps'] = [
+            '1. Verify JWT library is installed: composer install',
+            '2. Check browser Network tab for X-Shopify-Session-Token header',
+            '3. Verify App Bridge is initialized in <head> with host parameter',
+            '4. Check server error logs for detailed validation messages',
+            '5. Ensure the request is being made through App Bridge\'s fetch (not direct fetch)'
+        ];
+    }
 } else {
     $debug['next_steps'] = [
-        'All checks passed! Session tokens should be working.',
+        '✓ All checks passed! Session tokens are working correctly.',
         'Interact with your app in a dev store to trigger Shopify\'s automated check.',
         'Check will run automatically every 2 hours after interaction.'
     ];
