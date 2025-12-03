@@ -246,11 +246,13 @@
     (function() {
         var app = window.shopifyApp;
         if (!app) {
+            console.warn('App Bridge app instance not found');
             return;
         }
 
         var AppBridge = window['app-bridge'];
         if (!AppBridge) {
+            console.warn('App Bridge not available');
             return;
         }
 
@@ -258,6 +260,26 @@
         var TitleBar = actions.TitleBar;
 
         TitleBar.create(app, { title: 'Conversion Compass - About' });
+
+        // Debug session token functionality
+        setTimeout(function() {
+            var params = new URLSearchParams(window.location.search);
+            var shop = params.get('shop');
+            var host = params.get('host');
+            
+            console.log('=== APP BRIDGE DEBUG INFO (About Page) ===');
+            console.log({
+                appInitialized: !!app,
+                shop: shop,
+                host: host,
+                hasHost: !!host,
+                windowLocation: window.location.href
+            });
+
+            if (!host) {
+                console.error('❌ CRITICAL: Host parameter is missing from URL!');
+            }
+        }, 1000);
     })();
 </script>
 </body>

@@ -442,11 +442,13 @@
     (function() {
         var app = window.shopifyApp;
         if (!app) {
+            console.warn('App Bridge app instance not found');
             return;
         }
 
         var AppBridge = window['app-bridge'];
         if (!AppBridge) {
+            console.warn('App Bridge not available');
             return;
         }
 
@@ -454,6 +456,108 @@
         var TitleBar = actions.TitleBar;
 
         TitleBar.create(app, { title: 'Conversion Compass' });
+
+        // Test session token functionality after page load
+        setTimeout(function() {
+            var params = new URLSearchParams(window.location.search);
+            var shop = params.get('shop');
+            var host = params.get('host');
+            
+            console.log('=== APP BRIDGE DEBUG INFO ===');
+            console.log('App Bridge Debug Info:', {
+                appInitialized: !!app,
+                shop: shop,
+                host: host,
+                hasHost: !!host,
+                appBridgeVersion: AppBridge.version || 'unknown',
+                appBridgeUtils: typeof AppBridge.utils !== 'undefined',
+                windowLocation: window.location.href,
+                windowLocationSearch: window.location.search
+            });
+
+            // Critical: Check if host parameter is present
+            if (!host) {
+                console.error('❌ CRITICAL: Host parameter is missing from URL!');
+                console.error('This means the app is not being accessed through Shopify Admin.');
+                console.error('Session tokens will NOT be sent without the host parameter.');
+                console.error('Current URL:', window.location.href);
+                console.error('Query string:', window.location.search);
+                console.error('Expected URL format: ?shop=xxx.myshopify.com&host=base64encodedhost');
+                return;
+            }
+
+            // Test fetching with App Bridge
+            if (shop && host && typeof fetch !== 'undefined') {
+                var testUrl = '/test-session-token-fetch.php?shop=' + encodeURIComponent(shop);
+                
+                // Try different ways to get session token depending on App Bridge version
+                var getTokenPromise = null;
+                
+                // Method 1: Check if getSessionToken is available in utils
+                if (AppBridge.utils && typeof AppBridge.utils.getSessionToken === 'function') {
+                    console.log('Using AppBridge.utils.getSessionToken');
+                    getTokenPromise = AppBridge.utils.getSessionToken(app);
+                }
+                // Method 2: Check if it's available directly on AppBridge
+                else if (typeof AppBridge.getSessionToken === 'function') {
+                    console.log('Using AppBridge.getSessionToken');
+                    getTokenPromise = AppBridge.getSessionToken(app);
+                }
+                // Method 3: Check if fetch is wrapped by App Bridge
+                else {
+                    console.warn('getSessionToken not found. App Bridge CDN may handle tokens automatically.');
+                    // Try a regular fetch - App Bridge CDN might intercept it
+                    fetch(testUrl)
+                        .then(function(response) { return response.json(); })
+                        .then(function(data) {
+                            console.log('Fetch test result (App Bridge may auto-inject tokens):', data);
+                            if (data.success) {
+                                console.log('✓ Session tokens are working!');
+                            } else {
+                                console.warn('✗ Session token test failed:', data.message);
+                            }
+                        })
+                        .catch(function(error) {
+                            console.error('Fetch test error:', error);
+                        });
+                    return;
+                }
+
+                if (getTokenPromise) {
+                    getTokenPromise.then(function(token) {
+                        console.log('Session token retrieved:', token ? 'Yes (' + token.length + ' chars)' : 'No');
+                        
+                        if (!token) {
+                            console.error('❌ Failed to retrieve session token from App Bridge');
+                            return;
+                        }
+                        
+                        // Make a test request with the session token
+                        fetch(testUrl, {
+                            headers: {
+                                'X-Shopify-Session-Token': token
+                            }
+                        }).then(function(response) {
+                            return response.json();
+                        }).then(function(data) {
+                            console.log('=== SESSION TOKEN TEST RESULT ===');
+                            console.log('Session token test result:', data);
+                            if (data.success) {
+                                console.log('✓✓✓ Session tokens are working correctly! ✓✓✓');
+                            } else {
+                                console.warn('✗ Session token test failed:', data.message);
+                            }
+                        }).catch(function(error) {
+                            console.error('Session token test error:', error);
+                        });
+                    }).catch(function(error) {
+                        console.error('Failed to get session token:', error);
+                    });
+                }
+            } else {
+                console.warn('Cannot test session tokens - missing shop or host parameter');
+            }
+        }, 1000);
     })();
 </script>
 </body>
