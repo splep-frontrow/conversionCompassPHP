@@ -520,13 +520,45 @@
                 return;
             }
 
-            // Get actions from app instance (CDN version)
-            if (!app.actions) {
+            // Try to get actions - CDN version might expose them differently
+            var actions = null;
+            var TitleBar = null;
+            
+            // Method 1: Check if actions are on the app instance
+            if (app.actions) {
+                actions = app.actions;
+                console.log('Found actions on app instance');
+            }
+            // Method 2: Check if actions are on window.shopify
+            else if (window.shopify && window.shopify.actions) {
+                actions = window.shopify.actions;
+                console.log('Found actions on window.shopify');
+            }
+            // Method 3: Check if TitleBar is directly available
+            else if (window.shopify && window.shopify.TitleBar) {
+                TitleBar = window.shopify.TitleBar;
+                console.log('Found TitleBar directly on window.shopify');
+            }
+            
+            if (!actions && !TitleBar) {
                 console.warn('App Bridge actions not available');
+                console.log('Available on app:', Object.keys(app));
+                console.log('App object:', app);
+                console.log('Available on window.shopify:', window.shopify ? Object.keys(window.shopify) : 'N/A');
+                console.log('window.shopify object:', window.shopify);
+                // Check if actions are nested deeper
+                if (window.shopify) {
+                    console.log('window.shopify.app:', window.shopify.app);
+                    console.log('window.shopify.config:', window.shopify.config);
+                    console.log('window.shopify.protocol:', window.shopify.protocol);
+                }
                 return;
             }
-
-            var TitleBar = app.actions.TitleBar;
+            
+            if (!TitleBar && actions) {
+                TitleBar = actions.TitleBar;
+            }
+            
             if (!TitleBar) {
                 console.warn('TitleBar action not available');
                 return;

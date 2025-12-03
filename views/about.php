@@ -302,13 +302,32 @@
                 return;
             }
 
-            // Get actions from app instance (CDN version)
-            if (!app.actions) {
+            // Try to get actions - CDN version might expose them differently
+            var actions = null;
+            var TitleBar = null;
+            
+            // Method 1: Check if actions are on the app instance
+            if (app.actions) {
+                actions = app.actions;
+            }
+            // Method 2: Check if actions are on window.shopify
+            else if (window.shopify && window.shopify.actions) {
+                actions = window.shopify.actions;
+            }
+            // Method 3: Check if TitleBar is directly available
+            else if (window.shopify && window.shopify.TitleBar) {
+                TitleBar = window.shopify.TitleBar;
+            }
+            
+            if (!actions && !TitleBar) {
                 console.warn('App Bridge actions not available');
                 return;
             }
-
-            var TitleBar = app.actions.TitleBar;
+            
+            if (!TitleBar && actions) {
+                TitleBar = actions.TitleBar;
+            }
+            
             if (!TitleBar) {
                 console.warn('TitleBar action not available');
                 return;
