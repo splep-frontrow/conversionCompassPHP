@@ -520,51 +520,38 @@
                 return;
             }
 
-            // Try to get actions - CDN version might expose them differently
-            var actions = null;
+            // Try to get TitleBar - CDN version might expose it differently
             var TitleBar = null;
             
-            // Method 1: Check if actions are on the app instance
-            if (app.actions) {
-                actions = app.actions;
-                console.log('Found actions on app instance');
+            // Method 1: Check if actions are on window.shopify.actions
+            if (window.shopify && window.shopify.actions && window.shopify.actions.TitleBar) {
+                TitleBar = window.shopify.actions.TitleBar;
+                console.log('Found TitleBar at window.shopify.actions.TitleBar');
             }
-            // Method 2: Check if actions are on window.shopify
-            else if (window.shopify && window.shopify.actions) {
-                actions = window.shopify.actions;
-                console.log('Found actions on window.shopify');
-            }
-            // Method 3: Check if TitleBar is directly available
+            // Method 2: Check if TitleBar is directly on window.shopify
             else if (window.shopify && window.shopify.TitleBar) {
                 TitleBar = window.shopify.TitleBar;
                 console.log('Found TitleBar directly on window.shopify');
             }
+            // Method 3: Check if actions are on the app instance
+            else if (app.actions && app.actions.TitleBar) {
+                TitleBar = app.actions.TitleBar;
+                console.log('Found TitleBar on app.actions');
+            }
             
-            if (!actions && !TitleBar) {
-                console.warn('App Bridge actions not available');
-                console.log('Available on app:', Object.keys(app));
-                console.log('App object:', app);
-                console.log('Available on window.shopify:', window.shopify ? Object.keys(window.shopify) : 'N/A');
-                console.log('window.shopify object:', window.shopify);
-                // Check if actions are nested deeper
-                if (window.shopify) {
-                    console.log('window.shopify.app:', window.shopify.app);
-                    console.log('window.shopify.config:', window.shopify.config);
-                    console.log('window.shopify.protocol:', window.shopify.protocol);
+            if (TitleBar) {
+                try {
+                    TitleBar.create(app, { title: 'Conversion Compass' });
+                    console.log('✓ TitleBar created successfully');
+                } catch (error) {
+                    console.warn('Error creating TitleBar:', error);
                 }
-                return;
+            } else {
+                // With Shopify's CDN, TitleBar might be handled automatically by the admin
+                // This is not an error - the title bar is often managed by Shopify Admin
+                console.log('TitleBar not found - Shopify Admin may handle it automatically');
+                console.log('Available on window.shopify:', window.shopify ? Object.keys(window.shopify) : 'N/A');
             }
-            
-            if (!TitleBar && actions) {
-                TitleBar = actions.TitleBar;
-            }
-            
-            if (!TitleBar) {
-                console.warn('TitleBar action not available');
-                return;
-            }
-
-            TitleBar.create(app, { title: 'Conversion Compass' });
 
             // Test session token functionality after page load
             setTimeout(function() {

@@ -464,36 +464,32 @@ $shopName = $shopInfo['name'] ?? $shop;
                 return;
             }
 
-            // Try to get actions - CDN version might expose them differently
-            var actions = null;
+            // Try to get TitleBar - CDN version might expose it differently
             var TitleBar = null;
             
-            // Method 1: Check if actions are on the app instance
-            if (app.actions) {
-                actions = app.actions;
+            // Method 1: Check if actions are on window.shopify.actions
+            if (window.shopify && window.shopify.actions && window.shopify.actions.TitleBar) {
+                TitleBar = window.shopify.actions.TitleBar;
             }
-            // Method 2: Check if actions are on window.shopify
-            else if (window.shopify && window.shopify.actions) {
-                actions = window.shopify.actions;
-            }
-            // Method 3: Check if TitleBar is directly available
+            // Method 2: Check if TitleBar is directly on window.shopify
             else if (window.shopify && window.shopify.TitleBar) {
                 TitleBar = window.shopify.TitleBar;
             }
-            
-            if (!actions && !TitleBar) {
-                return;
+            // Method 3: Check if actions are on the app instance
+            else if (app.actions && app.actions.TitleBar) {
+                TitleBar = app.actions.TitleBar;
             }
             
-            if (!TitleBar && actions) {
-                TitleBar = actions.TitleBar;
+            if (TitleBar) {
+                try {
+                    TitleBar.create(app, { title: 'Subscription Management' });
+                } catch (error) {
+                    console.warn('Error creating TitleBar:', error);
+                }
+            } else {
+                // With Shopify's CDN, TitleBar might be handled automatically by the admin
+                console.log('TitleBar not found - Shopify Admin may handle it automatically');
             }
-            
-            if (!TitleBar) {
-                return;
-            }
-
-            TitleBar.create(app, { title: 'Subscription Management' });
         }, 500);
     })();
 </script>
