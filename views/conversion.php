@@ -24,7 +24,21 @@
             function tryInit() {
                 attempts++;
                 
-                // Shopify CDN exposes initializeAppBridge function
+                // Check if Shopify CDN has already auto-initialized the app
+                if (window.shopify && window.shopify.app) {
+                    console.log('=== APP BRIDGE AUTO-INITIALIZED BY CDN ===');
+                    window.shopifyApp = window.shopify.app;
+                    // Also expose AppBridge for compatibility
+                    window['app-bridge'] = {
+                        actions: window.shopifyApp.actions || {},
+                        utils: window.shopifyApp.utils || {}
+                    };
+                    console.log('✓ App Bridge found (auto-initialized by CDN)');
+                    console.log('App instance:', window.shopifyApp);
+                    return;
+                }
+                
+                // Try initializeAppBridge function if available
                 if (window.shopify && typeof window.shopify.initializeAppBridge === 'function') {
                     var params = new URLSearchParams(window.location.search);
                     var shop = params.get('shop');
@@ -60,11 +74,16 @@
                             console.error('Error message:', error.message);
                             console.error('Error stack:', error.stack);
                         });
-                } else if (attempts < maxAttempts) {
+                    return;
+                }
+                
+                // Keep trying if not found yet
+                if (attempts < maxAttempts) {
                     setTimeout(tryInit, 100);
                 } else {
                     console.error('✗ App Bridge failed to load after', maxAttempts * 100, 'ms');
                     console.error('window.shopify:', window.shopify);
+                    console.error('window.shopify.app:', window.shopify ? window.shopify.app : 'N/A');
                     console.error('window.shopify.initializeAppBridge:', window.shopify ? typeof window.shopify.initializeAppBridge : 'N/A');
                     console.error('Check Network tab to see if https://cdn.shopify.com/shopifycloud/app-bridge.js loaded successfully');
                 }
