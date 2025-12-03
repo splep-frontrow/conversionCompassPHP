@@ -10,10 +10,15 @@
     
     <!-- Shopify App Bridge -->
     <meta name="shopify-api-key" content="<?= htmlspecialchars(SHOPIFY_API_KEY, ENT_QUOTES, 'UTF-8') ?>" />
-    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" onload="initializeAppBridge()"></script>
     <script>
-        // Initialize App Bridge when script loads
+        // Define initialization function BEFORE loading the script
         function initializeAppBridge() {
+            console.log('=== APP BRIDGE INITIALIZATION STARTED ===');
+            console.log('Script onload fired');
+            console.log('window.app-bridge:', typeof window['app-bridge']);
+            console.log('window.shopify:', typeof window.shopify);
+            console.log('All window properties:', Object.keys(window).filter(function(k) { return k.toLowerCase().includes('app') || k.toLowerCase().includes('bridge') || k.toLowerCase().includes('shopify'); }));
+            
             // Wait for App Bridge to be available (it may load asynchronously)
             var attempts = 0;
             var maxAttempts = 50; // 5 seconds max wait
@@ -21,13 +26,20 @@
             function tryInit() {
                 attempts++;
                 
-                if (typeof window['app-bridge'] !== 'undefined') {
-                    var AppBridge = window['app-bridge'];
+                // Check multiple possible ways App Bridge might be exposed
+                var AppBridge = window['app-bridge'] || window['AppBridge'] || window.shopify?.appBridge || window.shopify?.AppBridge;
+                
+                if (AppBridge) {
                     var params = new URLSearchParams(window.location.search);
                     var shop = params.get('shop');
                     var host = params.get('host');
                     
-                    console.log('Initializing App Bridge:', { shop: shop, host: host ? 'present' : 'missing' });
+                    console.log('=== INITIALIZING APP BRIDGE ===');
+                    console.log('Shop:', shop);
+                    console.log('Host:', host ? 'present (' + host.substring(0, 20) + '...)' : 'MISSING');
+                    console.log('App Bridge found:', typeof AppBridge !== 'undefined');
+                    console.log('App Bridge type:', typeof AppBridge);
+                    console.log('App Bridge methods:', AppBridge ? Object.keys(AppBridge).slice(0, 10) : 'none');
                     
                     var appConfig = {
                         apiKey: "<?= htmlspecialchars(SHOPIFY_API_KEY, ENT_QUOTES, 'UTF-8') ?>",
@@ -38,12 +50,42 @@
                         appConfig.host = host;
                     }
                     
-                    window.shopifyApp = AppBridge.createApp(appConfig);
-                    console.log('App Bridge initialized successfully');
+                    try {
+                        // Try different initialization methods based on how CDN exposes it
+                        var createApp = null;
+                        
+                        if (typeof AppBridge.createApp === 'function') {
+                            createApp = AppBridge.createApp;
+                            console.log('Using AppBridge.createApp');
+                        } else if (typeof AppBridge.default === 'function') {
+                            createApp = AppBridge.default;
+                            console.log('Using AppBridge.default');
+                        } else if (typeof AppBridge === 'function') {
+                            createApp = AppBridge;
+                            console.log('Using AppBridge as function');
+                        } else {
+                            console.error('App Bridge createApp method not found');
+                            console.error('AppBridge object:', AppBridge);
+                            console.error('AppBridge keys:', Object.keys(AppBridge || {}));
+                            return;
+                        }
+                        
+                        if (createApp) {
+                            window.shopifyApp = createApp(appConfig);
+                            console.log('✓ App Bridge initialized successfully');
+                            console.log('App instance:', window.shopifyApp);
+                        }
+                    } catch (error) {
+                        console.error('✗ Error creating App Bridge app:', error);
+                        console.error('Error message:', error.message);
+                        console.error('Error stack:', error.stack);
+                    }
                 } else if (attempts < maxAttempts) {
                     setTimeout(tryInit, 100);
                 } else {
-                    console.error('App Bridge failed to load after', maxAttempts * 100, 'ms');
+                    console.error('✗ App Bridge failed to load after', maxAttempts * 100, 'ms');
+                    console.error('Checked for: window.app-bridge, window.AppBridge, window.shopify.appBridge');
+                    console.error('Check Network tab to see if https://cdn.shopify.com/shopifycloud/app-bridge.js loaded successfully');
                 }
             }
             
@@ -52,11 +94,16 @@
         
         // Also try on DOMContentLoaded as fallback
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initializeAppBridge);
+            document.addEventListener('DOMContentLoaded', function() {
+                console.log('DOMContentLoaded fired');
+                setTimeout(initializeAppBridge, 100);
+            });
         } else {
-            initializeAppBridge();
+            // Try immediately
+            setTimeout(initializeAppBridge, 100);
         }
     </script>
+    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" onload="console.log('App Bridge script onload fired'); initializeAppBridge();" onerror="console.error('✗ Failed to load App Bridge script - check Network tab')"></script>
     
     <style>
         * {

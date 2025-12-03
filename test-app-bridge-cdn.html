@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="shopify-api-key" content="test" />
+    <title>Test App Bridge CDN</title>
+</head>
+<body>
+    <h1>App Bridge CDN Test</h1>
+    <div id="results"></div>
+    
+    <script>
+        var results = document.getElementById('results');
+        
+        function log(message) {
+            console.log(message);
+            results.innerHTML += '<p>' + message + '</p>';
+        }
+        
+        log('Loading App Bridge from CDN...');
+    </script>
+    
+    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" 
+            onload="log('✓ Script loaded successfully'); checkAppBridge();" 
+            onerror="log('✗ Script failed to load');"></script>
+    
+    <script>
+        function checkAppBridge() {
+            setTimeout(function() {
+                log('Checking for App Bridge...');
+                log('window.app-bridge: ' + typeof window['app-bridge']);
+                log('window.AppBridge: ' + typeof window['AppBridge']);
+                log('window.shopify: ' + typeof window.shopify);
+                
+                var allKeys = Object.keys(window).filter(function(k) {
+                    return k.toLowerCase().includes('app') || 
+                           k.toLowerCase().includes('bridge') || 
+                           k.toLowerCase().includes('shopify');
+                });
+                log('Relevant window properties: ' + (allKeys.length > 0 ? allKeys.join(', ') : 'none'));
+                
+                if (window['app-bridge']) {
+                    log('✓ App Bridge found at window.app-bridge');
+                    log('Type: ' + typeof window['app-bridge']);
+                    log('Keys: ' + Object.keys(window['app-bridge']).slice(0, 10).join(', '));
+                } else {
+                    log('✗ App Bridge not found');
+                }
+            }, 1000);
+        }
+    </script>
+</body>
+</html>
+

@@ -106,9 +106,8 @@ $shopName = $shopInfo['name'] ?? $shop;
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <!-- Shopify App Bridge -->
     <meta name="shopify-api-key" content="<?= htmlspecialchars(SHOPIFY_API_KEY, ENT_QUOTES, 'UTF-8') ?>" />
-    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" onload="initializeAppBridge()"></script>
     <script>
-        // Initialize App Bridge when script loads
+        // Define initialization function BEFORE loading the script
         function initializeAppBridge() {
             // Wait for App Bridge to be available (it may load asynchronously)
             var attempts = 0;
@@ -123,8 +122,6 @@ $shopName = $shopInfo['name'] ?? $shop;
                     var shop = params.get('shop');
                     var host = params.get('host');
                     
-                    console.log('Initializing App Bridge:', { shop: shop, host: host ? 'present' : 'missing' });
-                    
                     var appConfig = {
                         apiKey: "<?= htmlspecialchars(SHOPIFY_API_KEY, ENT_QUOTES, 'UTF-8') ?>",
                         shopOrigin: shop
@@ -134,12 +131,16 @@ $shopName = $shopInfo['name'] ?? $shop;
                         appConfig.host = host;
                     }
                     
-                    window.shopifyApp = AppBridge.createApp(appConfig);
-                    console.log('App Bridge initialized successfully');
+                    try {
+                        window.shopifyApp = AppBridge.createApp(appConfig);
+                        console.log('✓ App Bridge initialized successfully');
+                    } catch (error) {
+                        console.error('✗ Error creating App Bridge app:', error);
+                    }
                 } else if (attempts < maxAttempts) {
                     setTimeout(tryInit, 100);
                 } else {
-                    console.error('App Bridge failed to load after', maxAttempts * 100, 'ms');
+                    console.error('✗ App Bridge failed to load after', maxAttempts * 100, 'ms');
                 }
             }
             
@@ -150,9 +151,10 @@ $shopName = $shopInfo['name'] ?? $shop;
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initializeAppBridge);
         } else {
-            initializeAppBridge();
+            setTimeout(initializeAppBridge, 100);
         }
     </script>
+    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" onload="initializeAppBridge()" onerror="console.error('Failed to load App Bridge script')"></script>
     <style>
         body {
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
