@@ -202,15 +202,39 @@ if ($response['status'] !== 200) {
     error_log("Token info: length=" . strlen($accessToken) . ", first_chars=" . substr($accessToken, 0, 5) . "...");
     error_log("API Key (first 10 chars): " . substr(SHOPIFY_API_KEY, 0, 10) . "...");
     
-    // If it's a 401, check if retries were attempted - if so, don't delete immediately
-    // The token might still be activating or there might be a credential mismatch
+    // If it's a 401, check if retries were attempted - if so, check if install is old
+    // The token might still be activating (fresh install) or it might be invalid (old install)
     if ($response['status'] === 401) {
-        // If retries were enabled, we already tried multiple times - don't delete the record
-        // The user should refresh or check credentials
+        $secondsAgo = $installTimestamp ? (time() - strtotime($installTimestamp)) : null;
+        $isOldInstall = $secondsAgo !== null && $secondsAgo > 300; // More than 5 minutes old
+        
         if ($shouldRetry) {
-            $secondsAgo = $installTimestamp ? (time() - strtotime($installTimestamp)) : 'unknown';
-            error_log("401 error after retry attempts for shop: {$shop} (token_source: {$tokenSource}, installed {$secondsAgo}s ago)");
-            error_log("All retry attempts have been exhausted - NOT deleting record. Token may be invalid or credentials may be mismatched.");
+            error_log("401 error after retry attempts for shop: {$shop} (token_source: {$tokenSource}, installed " . ($secondsAgo ?? 'unknown') . "s ago)");
+            
+            // If install is old (>5 minutes), the token is likely invalid from a previous installation
+            // Delete the record to force a fresh reinstall
+            if ($isOldInstall) {
+                error_log("Install timestamp is old ({$secondsAgo}s ago) - deleting shop record to force reinstall.");
+                error_log("NOTE: This likely indicates an invalid token from a previous installation that wasn't properly cleaned up.");
+                $deleted = false;
+                try {
+                    $deleteStmt = $db->prepare('DELETE FROM shops WHERE shop_domain = :shop');
+                    $deleteStmt->execute(['shop' => $shop]);
+                    error_log("Successfully deleted old shop record for: {$shop}");
+                    $deleted = true;
+                } catch (Exception $e) {
+                    error_log("Failed to delete invalid shop record: " . $e->getMessage());
+                }
+                
+                // Show reinstall message (whether deletion succeeded or failed)
+                http_response_code(500);
+                echo "The app installation appears to be invalid. Please reinstall the app.";
+                echo "<br><br><a href='/install.php?shop=" . urlencode($shop) . "'>Reinstall the app</a>";
+                exit;
+            } else {
+                // Fresh install (<5 minutes) - token might still be activating
+                error_log("Install is fresh ({$secondsAgo}s ago) - token may still be activating. NOT deleting record.");
+            }
         } else {
             // Retries weren't enabled, so this is likely an old/invalid token
             error_log("401 error detected - retries were NOT enabled for shop: {$shop} (token_source: {$tokenSource})");
@@ -226,11 +250,19 @@ if ($response['status'] !== 200) {
         }
     }
     
-    // For cases where retries were attempted, show a more helpful message
+    // For cases where retries were attempted and install is fresh, show a helpful message
+    // If install is old, we already showed reinstall message above
     if ($shouldRetry && $response['status'] === 401) {
-        echo "The app is still initializing. Please wait a moment and refresh the page.";
-        echo "<br><br><a href='?shop=" . urlencode($shop) . "'>Refresh Page</a>";
-        echo "<br><small>If this persists, try <a href='/install.php?shop=" . urlencode($shop) . "'>reinstalling the app</a></small>";
+        $secondsAgo = $installTimestamp ? (time() - strtotime($installTimestamp)) : null;
+        $isOldInstall = $secondsAgo !== null && $secondsAgo > 300;
+        
+        if (!$isOldInstall) {
+            // Fresh install - token might still be activating
+            echo "The app is still initializing. Please wait a moment and refresh the page.";
+            echo "<br><br><a href='?shop=" . urlencode($shop) . "'>Refresh Page</a>";
+            echo "<br><small>If this persists, try <a href='/install.php?shop=" . urlencode($shop) . "'>reinstalling the app</a></small>";
+        }
+        // If isOldInstall, we already showed reinstall message above
     } else {
         echo "Failed to load shop info from Shopify.";
         echo "<br><small>HTTP Status: {$response['status']}</small>";

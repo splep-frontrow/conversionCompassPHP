@@ -51,16 +51,24 @@ $payload = json_decode($data, true);
 $db = get_db();
 
 if ($topic === 'app/uninstalled') {
-    // Mark plan as expired when app is uninstalled
-    $stmt = $db->prepare('
-        UPDATE shops 
-        SET plan_status = :status 
-        WHERE shop_domain = :shop
-    ');
-    $stmt->execute([
-        'shop' => $shop,
-        'status' => 'expired',
-    ]);
+    // Delete shop record when app is uninstalled
+    // This ensures that on reinstall, it's treated as a fresh install
+    // The shop/redact webhook will handle final cleanup 48 hours later
+    try {
+        $stmt = $db->prepare('DELETE FROM shops WHERE shop_domain = :shop');
+        $stmt->execute(['shop' => $shop]);
+        
+        $deletedRows = $stmt->rowCount();
+        error_log("App uninstalled for shop: {$shop}, deleted {$deletedRows} row(s) from shops table");
+        
+        // Also delete any related data (e.g., oauth_states, subscriptions, etc.)
+        // Add any other cleanup here as needed
+        
+    } catch (Exception $e) {
+        error_log("Error deleting shop record during app/uninstalled webhook for {$shop}: " . $e->getMessage());
+        // Still return 200 to acknowledge receipt, even if deletion failed
+        // The error is logged for manual follow-up
+    }
     
     http_response_code(200);
     echo "OK";
