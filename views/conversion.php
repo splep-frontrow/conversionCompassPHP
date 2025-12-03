@@ -183,6 +183,33 @@
             console.log('Note: App Bridge may not auto-add session token to cross-origin requests');
             console.log('Attempting to manually get session token from App Bridge...');
             
+            // Debug: Check what's available on App Bridge
+            console.log('=== APP BRIDGE DEBUG ===');
+            console.log('window.shopifyApp:', window.shopifyApp);
+            console.log('window.shopify:', window.shopify);
+            if (window.shopifyApp) {
+                console.log('shopifyApp.utils:', window.shopifyApp.utils);
+                console.log('shopifyApp keys:', Object.keys(window.shopifyApp));
+                if (window.shopifyApp.config) {
+                    console.log('shopifyApp.config:', window.shopifyApp.config);
+                }
+            }
+            if (window.shopify) {
+                console.log('shopify.utils:', window.shopify.utils);
+                console.log('shopify keys:', Object.keys(window.shopify));
+                if (window.shopify.config) {
+                    console.log('shopify.config:', window.shopify.config);
+                }
+                // Check for idToken (some versions expose it)
+                if (window.shopify.idToken) {
+                    console.log('shopify.idToken found:', typeof window.shopify.idToken);
+                }
+            }
+            
+            // Check if native fetch has been wrapped by App Bridge
+            console.log('Native fetch:', typeof fetch);
+            console.log('window.fetch === fetch:', window.fetch === fetch);
+            
             // Try to get session token manually from App Bridge
             var getSessionTokenPromise = null;
             
@@ -196,10 +223,16 @@
                 console.log('Using window.shopify.utils.getSessionToken');
                 getSessionTokenPromise = window.shopify.utils.getSessionToken();
             }
-            // Method 3: Wait a bit for App Bridge to initialize
+            // Method 3: Check if idToken is available (some App Bridge versions expose it)
+            else if (window.shopify && window.shopify.idToken) {
+                console.log('Found idToken on window.shopify');
+                getSessionTokenPromise = Promise.resolve(window.shopify.idToken);
+            }
+            // Method 4: Wait a bit for App Bridge to initialize
             else {
-                console.warn('getSessionToken not available yet. App Bridge may not be fully initialized.');
-                console.warn('Will attempt fetch without manual token (App Bridge might still add it)');
+                console.warn('getSessionToken not available. App Bridge CDN may handle tokens automatically.');
+                console.warn('Note: App Bridge CDN should auto-add tokens to fetch requests.');
+                console.warn('For cross-origin requests, tokens might not be added automatically.');
             }
             
             // Function to make the fetch request
