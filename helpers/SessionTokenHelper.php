@@ -242,8 +242,22 @@ class SessionTokenHelper
 
             // Validate shop matches
             $tokenShop = $payload['dest'] ?? null;
-            if (!$tokenShop || $tokenShop !== $shop) {
-                error_log("SessionTokenHelper: Shop mismatch. Token shop: {$tokenShop}, Request shop: {$shop}");
+            if (!$tokenShop) {
+                error_log("SessionTokenHelper: No 'dest' claim in token for shop: {$shop}");
+                return null;
+            }
+            
+            // Normalize token shop (remove https://, http://, trailing slashes)
+            $tokenShopNormalized = strtolower(trim($tokenShop));
+            $tokenShopNormalized = preg_replace('#^https?://#', '', $tokenShopNormalized);
+            $tokenShopNormalized = rtrim($tokenShopNormalized, '/');
+            
+            // Normalize request shop (should already be normalized, but ensure consistency)
+            $shopNormalized = strtolower(trim($shop));
+            
+            if ($tokenShopNormalized !== $shopNormalized) {
+                error_log("SessionTokenHelper: Shop mismatch. Token shop (normalized): {$tokenShopNormalized}, Request shop (normalized): {$shopNormalized}");
+                error_log("SessionTokenHelper: Original token shop: {$tokenShop}, Original request shop: {$shop}");
                 return null;
             }
 
