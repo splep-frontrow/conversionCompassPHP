@@ -36,6 +36,29 @@ declare(strict_types=1);
 // Allow embedding in iframe (required for Shopify embedded apps)
 header('X-Frame-Options: ALLOWALL');
 header('Content-Security-Policy: frame-ancestors https://*.myshopify.com https://admin.shopify.com');
+
+// CORS headers to allow requests from Shopify Admin
+// Note: Use wildcard for Access-Control-Allow-Origin when credentials are not needed
+// Or use specific origin when credentials are needed
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if (strpos($origin, 'admin.shopify.com') !== false || strpos($origin, 'myshopify.com') !== false) {
+    header('Access-Control-Allow-Origin: ' . $origin);
+    header('Access-Control-Allow-Credentials: true');
+} else {
+    // Fallback: allow from admin.shopify.com
+    header('Access-Control-Allow-Origin: https://admin.shopify.com');
+    header('Access-Control-Allow-Credentials: true');
+}
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: X-Shopify-Session-Token, Authorization, Content-Type, Accept');
+header('Access-Control-Expose-Headers: Content-Type');
+
+// Handle preflight OPTIONS request
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
 header('Content-Type: application/json');
 
 require_once __DIR__ . '/config.php';

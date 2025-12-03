@@ -10,6 +10,7 @@
     
     <!-- Shopify App Bridge -->
     <meta name="shopify-api-key" content="<?= htmlspecialchars(SHOPIFY_API_KEY, ENT_QUOTES, 'UTF-8') ?>" />
+    <meta name="backend-url" content="https://backend.shopconversionhistory.com" />
     <script>
         // Define initialization function BEFORE loading the script
         function initializeAppBridge() {
@@ -107,23 +108,69 @@
     <!-- Session Token Test Function - Available Immediately -->
     <script>
         // Helper function to get backend URL
+        // When embedded, window.location points to admin.shopify.com, so we need to use meta tag or fallback
         function getBackendUrl() {
-            var currentUrl = window.location.href;
-            var match = currentUrl.match(/https?:\/\/([^\/]+)/);
-            if (match) {
-                return match[0];
+            // Method 1: Get from meta tag (most reliable)
+            var metaBackend = document.querySelector('meta[name="backend-url"]');
+            if (metaBackend) {
+                return metaBackend.getAttribute('content');
             }
-            return window.location.protocol + '//' + window.location.host;
+            
+            // Method 2: Hardcode fallback (your actual backend domain from shopify.app.toml)
+            return 'https://backend.shopconversionhistory.com';
         }
         
         // Expose debug function globally for easy testing (available immediately)
-        window.testSessionToken = function() {
-            var params = new URLSearchParams(window.location.search);
-            var shop = params.get('shop');
+        // Usage: testSessionToken() or testSessionToken('your-shop.myshopify.com')
+        window.testSessionToken = function(shopParam) {
+            // Try multiple methods to get shop parameter
+            var shop = shopParam || null;
+            
+            // Method 1: From URL query string
             if (!shop) {
-                console.error('Shop parameter not found in URL');
-                return Promise.reject(new Error('Shop parameter required'));
+                var params = new URLSearchParams(window.location.search);
+                shop = params.get('shop');
             }
+            
+            // Method 2: From App Bridge config
+            if (!shop && window.shopify && window.shopify.config && window.shopify.config.shop) {
+                shop = window.shopify.config.shop;
+            }
+            
+            // Method 3: From App Bridge app instance
+            if (!shop && window.shopifyApp && window.shopifyApp.config && window.shopifyApp.config.shop) {
+                shop = window.shopifyApp.config.shop;
+            }
+            
+            // Method 4: Extract from current URL hostname (if it's a myshopify.com domain)
+            if (!shop) {
+                var hostname = window.location.hostname;
+                var match = hostname.match(/([^.]+\.myshopify\.com)/);
+                if (match) {
+                    shop = match[1];
+                }
+            }
+            
+            // Method 5: Try to get from parent frame (if embedded)
+            if (!shop && window.parent && window.parent !== window) {
+                try {
+                    var parentParams = new URLSearchParams(window.parent.location.search);
+                    shop = parentParams.get('shop');
+                } catch (e) {
+                    // Cross-origin, can't access parent
+                }
+            }
+            
+            if (!shop) {
+                console.error('Shop parameter not found. Tried:');
+                console.error('1. URL query string:', window.location.search);
+                console.error('2. App Bridge config:', window.shopify && window.shopify.config);
+                console.error('3. App instance config:', window.shopifyApp && window.shopifyApp.config);
+                console.error('4. Current URL:', window.location.href);
+                console.error('Please provide shop parameter manually: testSessionToken("your-shop.myshopify.com")');
+                return Promise.reject(new Error('Shop parameter required. Current URL: ' + window.location.href));
+            }
+            
             var backendUrl = getBackendUrl();
             var debugUrl = backendUrl + '/debug-session-token.php?shop=' + encodeURIComponent(shop);
             
@@ -132,10 +179,78 @@
             console.log('Debug endpoint:', debugUrl);
             console.log('Note: App Bridge will automatically add X-Shopify-Session-Token header');
             
-            return fetch(debugUrl)
+            console.log('Making fetch request to:', debugUrl);
+            console.log('Note: App Bridge may not auto-add session token to cross-origin requests');
+            console.log('Attempting to manually get session token from App Bridge...');
+            
+            // Try to get session token manually from App Bridge
+            var getSessionTokenPromise = null;
+            
+            // Method 1: Try app.utils.getSessionToken
+            if (window.shopifyApp && window.shopifyApp.utils && typeof window.shopifyApp.utils.getSessionToken === 'function') {
+                console.log('Using app.utils.getSessionToken');
+                getSessionTokenPromise = window.shopifyApp.utils.getSessionToken();
+            }
+            // Method 2: Try window.shopify.utils.getSessionToken
+            else if (window.shopify && window.shopify.utils && typeof window.shopify.utils.getSessionToken === 'function') {
+                console.log('Using window.shopify.utils.getSessionToken');
+                getSessionTokenPromise = window.shopify.utils.getSessionToken();
+            }
+            // Method 3: Wait a bit for App Bridge to initialize
+            else {
+                console.warn('getSessionToken not available yet. App Bridge may not be fully initialized.');
+                console.warn('Will attempt fetch without manual token (App Bridge might still add it)');
+            }
+            
+            // Function to make the fetch request
+            function makeFetchRequest(sessionToken) {
+                var headers = {
+                    'Accept': 'application/json'
+                };
+                
+                if (sessionToken) {
+                    headers['X-Shopify-Session-Token'] = sessionToken;
+                    console.log('✓ Adding X-Shopify-Session-Token header manually');
+                } else {
+                    console.warn('⚠ No session token available - App Bridge should add it automatically');
+                }
+                
+                return fetch(debugUrl, {
+                    method: 'GET',
+                    mode: 'cors',
+                    credentials: 'include',
+                    headers: headers
+                });
+            }
+            
+            // If we have a way to get the token, use it; otherwise try direct fetch
+            var requestPromise = null;
+            if (getSessionTokenPromise) {
+                requestPromise = getSessionTokenPromise.then(function(token) {
+                    if (token) {
+                        console.log('✓ Retrieved session token from App Bridge');
+                        return makeFetchRequest(token);
+                    } else {
+                        console.warn('⚠ getSessionToken returned null/undefined');
+                        return makeFetchRequest(null);
+                    }
+                });
+            } else {
+                // Try direct fetch - App Bridge might still intercept it
+                requestPromise = makeFetchRequest(null);
+            }
+            
+            return requestPromise
                 .then(function(response) {
+                    console.log('Response status:', response.status, response.statusText);
+                    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+                    
                     if (!response.ok) {
-                        throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+                        // Try to get error text
+                        return response.text().then(function(text) {
+                            console.error('Response body:', text);
+                            throw new Error('HTTP ' + response.status + ': ' + response.statusText + '\nResponse: ' + text.substring(0, 200));
+                        });
                     }
                     return response.json();
                 })
@@ -153,8 +268,20 @@
                     return data;
                 })
                 .catch(function(error) {
-                    console.error('Error testing session token:', error);
-                    console.error('Make sure you\'re calling this from within the embedded app context.');
+                    console.error('=== FETCH ERROR ===');
+                    console.error('Error:', error);
+                    console.error('Error message:', error.message);
+                    console.error('');
+                    console.error('Troubleshooting:');
+                    console.error('1. Open Network tab in DevTools');
+                    console.error('2. Look for the request to debug-session-token.php');
+                    console.error('3. Check if it was blocked, redirected, or returned an error');
+                    console.error('4. Check if X-Shopify-Session-Token header is present');
+                    console.error('5. Verify CORS headers are correct');
+                    console.error('');
+                    console.error('If the request is being blocked by App Bridge, try:');
+                    console.error('- Using a relative URL: /debug-session-token.php?shop=' + shop);
+                    console.error('- Or check App Bridge configuration');
                     throw error;
                 });
         };
