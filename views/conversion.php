@@ -510,6 +510,61 @@
 
 <script>
     (function() {
+        // Helper function to get backend URL (extract from current page URL)
+        function getBackendUrl() {
+            // Extract backend domain from current page URL
+            var currentUrl = window.location.href;
+            var match = currentUrl.match(/https?:\/\/([^\/]+)/);
+            if (match) {
+                return match[0]; // Returns protocol + domain (e.g., https://backend.shopconversionhistory.com)
+            }
+            // Fallback: try to get from window.location
+            return window.location.protocol + '//' + window.location.host;
+        }
+        
+        // Expose debug function globally for easy testing (available immediately)
+        window.testSessionToken = function() {
+            var params = new URLSearchParams(window.location.search);
+            var shop = params.get('shop');
+            if (!shop) {
+                console.error('Shop parameter not found in URL');
+                return Promise.reject(new Error('Shop parameter required'));
+            }
+            var backendUrl = getBackendUrl();
+            var debugUrl = backendUrl + '/debug-session-token.php?shop=' + encodeURIComponent(shop);
+            
+            console.log('=== TESTING SESSION TOKEN ===');
+            console.log('Backend URL:', backendUrl);
+            console.log('Debug endpoint:', debugUrl);
+            console.log('Note: App Bridge will automatically add X-Shopify-Session-Token header');
+            
+            return fetch(debugUrl)
+                .then(function(response) {
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+                    }
+                    return response.json();
+                })
+                .then(function(data) {
+                    console.log('=== SESSION TOKEN DEBUG RESULT ===');
+                    console.log(data);
+                    if (data.overall_status === 'PASS') {
+                        console.log('✓ All checks passed!');
+                    } else {
+                        console.warn('✗ Some checks failed. See details above.');
+                        if (data.access_method === 'DIRECT') {
+                            console.warn('⚠️ Endpoint was accessed directly. Use this function from within the embedded app.');
+                        }
+                    }
+                    return data;
+                })
+                .catch(function(error) {
+                    console.error('Error testing session token:', error);
+                    console.error('Make sure you\'re calling this from within the embedded app context.');
+                    throw error;
+                });
+        };
+        
         // Wait a bit for App Bridge to initialize
         function initTitleBar() {
             var app = window.shopifyApp;
@@ -553,57 +608,6 @@
                 console.log('Available on window.shopify:', window.shopify ? Object.keys(window.shopify) : 'N/A');
             }
 
-            // Helper function to get backend URL (extract from current page URL)
-            function getBackendUrl() {
-                // Extract backend domain from current page URL
-                var currentUrl = window.location.href;
-                var match = currentUrl.match(/https?:\/\/([^\/]+)/);
-                if (match) {
-                    return match[0]; // Returns protocol + domain (e.g., https://backend.shopconversionhistory.com)
-                }
-                // Fallback: try to get from window.location
-                return window.location.protocol + '//' + window.location.host;
-            }
-            
-            // Expose debug function globally for easy testing
-            window.testSessionToken = function() {
-                var params = new URLSearchParams(window.location.search);
-                var shop = params.get('shop');
-                var backendUrl = getBackendUrl();
-                var debugUrl = backendUrl + '/debug-session-token.php?shop=' + encodeURIComponent(shop);
-                
-                console.log('=== TESTING SESSION TOKEN ===');
-                console.log('Backend URL:', backendUrl);
-                console.log('Debug endpoint:', debugUrl);
-                console.log('Note: App Bridge will automatically add X-Shopify-Session-Token header');
-                
-                return fetch(debugUrl)
-                    .then(function(response) {
-                        if (!response.ok) {
-                            throw new Error('HTTP ' + response.status + ': ' + response.statusText);
-                        }
-                        return response.json();
-                    })
-                    .then(function(data) {
-                        console.log('=== SESSION TOKEN DEBUG RESULT ===');
-                        console.log(data);
-                        if (data.overall_status === 'PASS') {
-                            console.log('✓ All checks passed!');
-                        } else {
-                            console.warn('✗ Some checks failed. See details above.');
-                            if (data.access_method === 'DIRECT') {
-                                console.warn('⚠️ Endpoint was accessed directly. Use this function from within the embedded app.');
-                            }
-                        }
-                        return data;
-                    })
-                    .catch(function(error) {
-                        console.error('Error testing session token:', error);
-                        console.error('Make sure you\'re calling this from within the embedded app context.');
-                        throw error;
-                    });
-            };
-            
             // Test session token functionality after page load
             setTimeout(function() {
                 // Re-check app instance
