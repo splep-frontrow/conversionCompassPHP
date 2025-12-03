@@ -48,16 +48,17 @@ class SessionTokenHelper
      * Get Shopify public key from JWKS endpoint
      * 
      * @param string $shop The shop domain
+     * @param int $retryCount Number of retries attempted
      * @return string|null The public key in PEM format or null if not found
      */
-    private static function getShopifyPublicKey(string $shop): ?string
+    private static function getShopifyPublicKey(string $shop, int $retryCount = 0): ?string
     {
         // Cache key for the public key
         $cacheKey = 'shopify_public_key_' . $shop;
         $cacheFile = sys_get_temp_dir() . '/' . $cacheKey . '.pem';
         
-        // Check cache (valid for 1 hour)
-        if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < 3600) {
+        // Check cache (valid for 24 hours - Shopify public keys rarely change)
+        if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < 86400) {
             $publicKey = file_get_contents($cacheFile);
             if ($publicKey) {
                 error_log("SessionTokenHelper: Using cached public key for shop: {$shop}");
@@ -68,19 +69,25 @@ class SessionTokenHelper
         try {
             // Fetch JWKS from Shopify
             $jwksUrl = "https://{$shop}/.well-known/jwks.json";
-            error_log("SessionTokenHelper: Fetching JWKS from: {$jwksUrl}");
+            error_log("SessionTokenHelper: Fetching JWKS from: {$jwksUrl} (attempt " . ($retryCount + 1) . ")");
             
             $context = stream_context_create([
                 'http' => [
-                    'timeout' => 5,
+                    'timeout' => 10, // Increased timeout for reliability
                     'method' => 'GET',
+                    'ignore_errors' => true, // Don't fail on HTTP errors
                 ]
             ]);
             
             $jwksJson = @file_get_contents($jwksUrl, false, $context);
             
             if (!$jwksJson) {
-                error_log("SessionTokenHelper: Failed to fetch JWKS for shop: {$shop}");
+                // Retry once if first attempt fails (might be timing issue)
+                if ($retryCount < 1) {
+                    error_log("SessionTokenHelper: First JWKS fetch failed, retrying immediately for shop: {$shop}");
+                    return self::getShopifyPublicKey($shop, $retryCount + 1);
+                }
+                error_log("SessionTokenHelper: Failed to fetch JWKS for shop: {$shop} after retries");
                 return null;
             }
 
@@ -225,31 +232,61 @@ class SessionTokenHelper
                 $publicKey = self::getShopifyPublicKey($shop);
                 if (!$publicKey) {
                     error_log("SessionTokenHelper: Failed to get public key for RS256 validation, shop: {$shop}");
+                    error_log("SessionTokenHelper: This might be a temporary network issue. Token validation will fail but may succeed on retry.");
                     return null;
                 }
 
-                // Decode and verify token with RS256
-                $decoded = \Firebase\JWT\JWT::decode($token, new \Firebase\JWT\Key($publicKey, 'RS256'));
+                try {
+                    // Decode and verify token with RS256
+                    $decoded = \Firebase\JWT\JWT::decode($token, new \Firebase\JWT\Key($publicKey, 'RS256'));
+                } catch (\Firebase\JWT\ExpiredException $e) {
+                    error_log("SessionTokenHelper: Token expired for shop: {$shop}");
+                    return null;
+                } catch (\Firebase\JWT\SignatureInvalidException $e) {
+                    error_log("SessionTokenHelper: Token signature invalid for shop: {$shop}. Error: " . $e->getMessage());
+                    return null;
+                } catch (\Exception $e) {
+                    error_log("SessionTokenHelper: JWT decode error for shop: {$shop}. Error: " . $e->getMessage());
+                    return null;
+                }
             } else {
                 // Fallback to HS256 with API secret (for backward compatibility)
                 error_log("SessionTokenHelper: Using HS256 validation with API secret for shop: {$shop}");
                 $secret = SHOPIFY_API_SECRET;
-                $decoded = \Firebase\JWT\JWT::decode($token, new \Firebase\JWT\Key($secret, 'HS256'));
+                try {
+                    $decoded = \Firebase\JWT\JWT::decode($token, new \Firebase\JWT\Key($secret, 'HS256'));
+                } catch (\Exception $e) {
+                    error_log("SessionTokenHelper: HS256 decode error for shop: {$shop}. Error: " . $e->getMessage());
+                    return null;
+                }
             }
 
             // Convert to array
             $payload = (array) $decoded;
 
-            // Validate shop matches
+            // Validate shop matches - check both 'dest' and 'iss' claims
             $tokenShop = $payload['dest'] ?? null;
+            
+            // If 'dest' is not available, try extracting from 'iss' (issuer)
+            if (!$tokenShop && isset($payload['iss'])) {
+                $iss = $payload['iss'];
+                // Extract shop domain from issuer URL (e.g., "https://shop.myshopify.com/admin" -> "shop.myshopify.com")
+                if (preg_match('#https?://([^/]+\.myshopify\.com)#', $iss, $matches)) {
+                    $tokenShop = $matches[1];
+                    error_log("SessionTokenHelper: Extracted shop from 'iss' claim: {$tokenShop}");
+                }
+            }
+            
             if (!$tokenShop) {
-                error_log("SessionTokenHelper: No 'dest' claim in token for shop: {$shop}");
+                error_log("SessionTokenHelper: No 'dest' or valid 'iss' claim in token for shop: {$shop}");
+                error_log("SessionTokenHelper: Available claims: " . implode(', ', array_keys($payload)));
                 return null;
             }
             
-            // Normalize token shop (remove https://, http://, trailing slashes)
+            // Normalize token shop (remove https://, http://, trailing slashes, /admin path)
             $tokenShopNormalized = strtolower(trim($tokenShop));
             $tokenShopNormalized = preg_replace('#^https?://#', '', $tokenShopNormalized);
+            $tokenShopNormalized = preg_replace('#/admin.*$#', '', $tokenShopNormalized); // Remove /admin path if present
             $tokenShopNormalized = rtrim($tokenShopNormalized, '/');
             
             // Normalize request shop (should already be normalized, but ensure consistency)
