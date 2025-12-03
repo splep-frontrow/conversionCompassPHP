@@ -563,33 +563,37 @@
                 }
                 var params = new URLSearchParams(window.location.search);
                 var shop = params.get('shop');
-                var host = params.get('host');
+                // Try to get host from URL first, then from App Bridge config
+                var host = params.get('host') || (window.shopify && window.shopify.config && window.shopify.config.host) || null;
                 
                 console.log('=== APP BRIDGE DEBUG INFO ===');
                 console.log('App Bridge Debug Info:', {
                     appInitialized: !!app,
                     shop: shop,
-                    host: host,
+                    host: host ? 'present (' + host.substring(0, 20) + '...)' : 'not found',
+                    hostFromURL: params.get('host'),
+                    hostFromConfig: window.shopify && window.shopify.config ? window.shopify.config.host : null,
                     hasHost: !!host,
                     appBridgeVersion: app.version || 'unknown',
                     appBridgeUtils: typeof app.utils !== 'undefined',
                     windowLocation: window.location.href,
-                    windowLocationSearch: window.location.search
+                    windowLocationSearch: window.location.search,
+                    shopifyConfig: window.shopify && window.shopify.config ? window.shopify.config : null
                 });
 
-            // Critical: Check if host parameter is present
+            // Note: With Shopify's CDN, session tokens are automatically handled by App Bridge
+            // The host parameter might be in the config rather than the URL
             if (!host) {
-                console.error('❌ CRITICAL: Host parameter is missing from URL!');
-                console.error('This means the app is not being accessed through Shopify Admin.');
-                console.error('Session tokens will NOT be sent without the host parameter.');
-                console.error('Current URL:', window.location.href);
-                console.error('Query string:', window.location.search);
-                console.error('Expected URL format: ?shop=xxx.myshopify.com&host=base64encodedhost');
-                return;
+                console.warn('⚠️ Host parameter not found in URL or App Bridge config');
+                console.warn('With Shopify CDN, App Bridge may handle session tokens automatically');
+                console.warn('Current URL:', window.location.href);
+                console.warn('Query string:', window.location.search);
+                // Don't return - App Bridge CDN might still work without explicit host
             }
 
             // Test fetching with App Bridge
-            if (shop && host && typeof fetch !== 'undefined') {
+            // Note: With Shopify CDN, session tokens are automatically injected into fetch requests
+            if (shop && typeof fetch !== 'undefined') {
                 var testUrl = '/test-session-token-fetch.php?shop=' + encodeURIComponent(shop);
                 
                 // Try different ways to get session token depending on App Bridge version
