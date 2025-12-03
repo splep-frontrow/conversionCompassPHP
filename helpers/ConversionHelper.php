@@ -143,7 +143,7 @@ GRAPHQL;
 
     /**
      * Build GraphQL query for orders with conversion data
-     * First version: Simple query to get basic order data
+     * Includes customerJourneySummary with UTM parameters
      */
     private static function buildOrdersQuery(): string
     {
@@ -161,6 +161,30 @@ query GetOrders(\$first: Int!, \$query: String!, \$after: String) {
             currencyCode
           }
         }
+        customerJourneySummary {
+          firstVisit {
+            utmParameters {
+              campaign
+              source
+              medium
+              term
+              content
+            }
+            referrerUrl
+            landingPage
+          }
+          lastVisit {
+            utmParameters {
+              campaign
+              source
+              medium
+              term
+              content
+            }
+            referrerUrl
+            landingPage
+          }
+        }
       }
     }
     pageInfo {
@@ -174,11 +198,10 @@ GRAPHQL;
     
     /**
      * Build GraphQL query for orders WITH conversion data
-     * This will be used once we verify the correct field structure
+     * @deprecated This method is no longer needed as buildOrdersQuery() now includes conversion data
      */
     private static function buildOrdersQueryWithConversion(): string
     {
-        // This will be implemented once we know the correct schema structure
         return self::buildOrdersQuery();
     }
 
@@ -222,13 +245,14 @@ GRAPHQL;
             $referringSite = $parsed['host'] ?? $referrerUrl;
         }
 
-        // Extract UTM parameters - try direct fields first (camelCase)
-        // Shopify GraphQL uses camelCase for field names
+        // Extract UTM parameters from utmParameters object
+        $utmParams = $visit['utmParameters'] ?? null;
+        
         return [
-            'campaign' => $visit['utmCampaign'] ?? 'N/A',
-            'source' => $visit['utmSource'] ?? 'N/A',
-            'medium' => $visit['utmMedium'] ?? 'N/A',
-            'content' => $visit['utmContent'] ?? 'N/A',
+            'campaign' => $utmParams['campaign'] ?? 'N/A',
+            'source' => $utmParams['source'] ?? 'N/A',
+            'medium' => $utmParams['medium'] ?? 'N/A',
+            'content' => $utmParams['content'] ?? 'N/A',
             'referring_site' => $referringSite,
         ];
     }
