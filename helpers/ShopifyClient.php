@@ -138,42 +138,241 @@ class ShopifyClient
     }
 
     /**
-     * Create a recurring application charge
+     * Create a recurring application charge using GraphQL (required for public apps)
      */
     public static function createRecurringCharge(string $shop, string $accessToken, float $amount, string $planType): array
     {
         $name = $planType === 'annual' ? 'Annual Subscription' : 'Monthly Subscription';
+        $interval = $planType === 'annual' ? 'EVERY_12_MONTHS' : 'EVERY_30_DAYS';
+        $returnUrl = 'https://' . parse_url(SHOPIFY_REDIRECT_URI, PHP_URL_HOST) . '/subscription.php?shop=' . urlencode($shop);
         
-        $payload = [
-            'recurring_application_charge' => [
-                'name'       => $name,
-                'price'      => $amount,
-                'return_url' => 'https://' . parse_url(SHOPIFY_REDIRECT_URI, PHP_URL_HOST) . '/subscription.php?shop=' . urlencode($shop),
-                'test'       => false, // Set to true for development stores
+        // GraphQL mutation for creating app subscription
+        $mutation = <<<GRAPHQL
+mutation appSubscriptionCreate(\$name: String!, \$lineItems: [AppSubscriptionLineItemInput!]!, \$returnUrl: URL!, \$test: Boolean) {
+  appSubscriptionCreate(
+    name: \$name
+    lineItems: \$lineItems
+    returnUrl: \$returnUrl
+    test: \$test
+  ) {
+    appSubscription {
+      id
+      status
+      name
+      currentPeriodEnd
+    }
+    confirmationUrl
+    userErrors {
+      field
+      message
+    }
+  }
+}
+GRAPHQL;
+
+        $variables = [
+            'name' => $name,
+            'lineItems' => [
+                [
+                    'plan' => [
+                        'appRecurringPricingDetails' => [
+                            'price' => [
+                                'amount' => $amount,
+                                'currencyCode' => 'USD'
+                            ],
+                            'interval' => $interval
+                        ]
+                    ]
+                ]
             ],
+            'returnUrl' => $returnUrl,
+            'test' => false // Set to true for development stores
         ];
 
-        return self::apiRequest($shop, $accessToken, '/admin/api/2024-10/recurring_application_charges.json', 'POST', $payload);
+        $response = self::graphqlQuery($shop, $accessToken, $mutation, $variables);
+        
+        // Transform GraphQL response to match expected format
+        if ($response['status'] === 200 && isset($response['body']['data']['appSubscriptionCreate'])) {
+            $result = $response['body']['data']['appSubscriptionCreate'];
+            
+            // Check for user errors
+            if (!empty($result['userErrors'])) {
+                error_log("GraphQL user errors: " . json_encode($result['userErrors']));
+                return [
+                    'status' => 400,
+                    'body' => ['errors' => $result['userErrors']],
+                    'raw' => json_encode($result['userErrors'])
+                ];
+            }
+            
+            // Return in format similar to REST API for compatibility
+            return [
+                'status' => 201,
+                'body' => [
+                    'recurring_application_charge' => [
+                        'id' => $result['appSubscription']['id'] ?? null,
+                        'name' => $result['appSubscription']['name'] ?? $name,
+                        'status' => $result['appSubscription']['status'] ?? 'pending',
+                        'confirmation_url' => $result['confirmationUrl'] ?? null
+                    ]
+                ],
+                'raw' => $response['raw']
+            ];
+        }
+        
+        // Return error response
+        return $response;
     }
 
     /**
-     * Get the status of a charge
+     * Get the status of a charge using GraphQL
      */
     public static function getChargeStatus(string $shop, string $accessToken, string $chargeId): array
     {
-        return self::apiRequest($shop, $accessToken, "/admin/api/2024-10/recurring_application_charges/{$chargeId}.json", 'GET');
+        // Extract the GID if it's not already in GID format
+        $gid = $chargeId;
+        if (!str_starts_with($chargeId, 'gid://')) {
+            $gid = "gid://shopify/AppSubscription/{$chargeId}";
+        }
+        
+        $query = <<<GRAPHQL
+query getAppSubscription(\$id: ID!) {
+  appSubscription(id: \$id) {
+    id
+    name
+    status
+    currentPeriodEnd
+    lineItems {
+      id
+      plan {
+        ... on AppRecurringPricing {
+          price {
+            amount
+            currencyCode
+          }
+          interval
+        }
+      }
+    }
+  }
+}
+GRAPHQL;
+
+        $variables = ['id' => $gid];
+        return self::graphqlQuery($shop, $accessToken, $query, $variables);
     }
 
     /**
-     * Cancel a recurring charge
+     * Cancel a recurring charge using GraphQL
      */
     public static function cancelCharge(string $shop, string $accessToken, string $chargeId): array
     {
-        return self::apiRequest($shop, $accessToken, "/admin/api/2024-10/recurring_application_charges/{$chargeId}.json", 'DELETE');
+        // Extract the GID if it's not already in GID format
+        $gid = $chargeId;
+        if (!str_starts_with($chargeId, 'gid://')) {
+            $gid = "gid://shopify/AppSubscription/{$chargeId}";
+        }
+        
+        $mutation = <<<GRAPHQL
+mutation appSubscriptionCancel(\$id: ID!) {
+  appSubscriptionCancel(id: \$id) {
+    appSubscription {
+      id
+      status
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+GRAPHQL;
+
+        $variables = ['id' => $gid];
+        $response = self::graphqlQuery($shop, $accessToken, $mutation, $variables);
+        
+        // Check for user errors
+        if ($response['status'] === 200 && isset($response['body']['data']['appSubscriptionCancel'])) {
+            $result = $response['body']['data']['appSubscriptionCancel'];
+            
+            if (!empty($result['userErrors'])) {
+                error_log("GraphQL cancel user errors: " . json_encode($result['userErrors']));
+                return [
+                    'status' => 400,
+                    'body' => ['errors' => $result['userErrors']],
+                    'raw' => json_encode($result['userErrors'])
+                ];
+            }
+            
+            // Return success response
+            return [
+                'status' => 200,
+                'body' => $result,
+                'raw' => $response['raw']
+            ];
+        }
+        
+        return $response;
     }
 
     /**
-     * Create a webhook for the shop
+     * Create a webhook using GraphQL (for GraphQL-only topics like app_subscriptions/update)
+     */
+    public static function createWebhookGraphQL(string $shop, string $accessToken, string $topic, string $address): array
+    {
+        // Convert REST topic format to GraphQL enum format
+        $graphqlTopic = strtoupper(str_replace('/', '_', $topic));
+        
+        $mutation = <<<GRAPHQL
+mutation webhookSubscriptionCreate(\$topic: WebhookSubscriptionTopic!, \$webhookSubscription: WebhookSubscriptionInput!) {
+  webhookSubscriptionCreate(topic: \$topic, webhookSubscription: \$webhookSubscription) {
+    webhookSubscription {
+      id
+      callbackUrl
+      format
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+GRAPHQL;
+
+        $variables = [
+            'topic' => $graphqlTopic,
+            'webhookSubscription' => [
+                'callbackUrl' => $address,
+                'format' => 'JSON'
+            ]
+        ];
+
+        $response = self::graphqlQuery($shop, $accessToken, $mutation, $variables);
+        
+        // Transform to match REST API response format for compatibility
+        if ($response['status'] === 200 && isset($response['body']['data']['webhookSubscriptionCreate'])) {
+            $result = $response['body']['data']['webhookSubscriptionCreate'];
+            
+            if (!empty($result['userErrors'])) {
+                return [
+                    'status' => 400,
+                    'body' => ['errors' => $result['userErrors']],
+                    'raw' => json_encode($result['userErrors'])
+                ];
+            }
+            
+            return [
+                'status' => 201,
+                'body' => ['webhook' => $result['webhookSubscription']],
+                'raw' => $response['raw']
+            ];
+        }
+        
+        return $response;
+    }
+
+    /**
+     * Create a webhook for the shop (REST API - for backward compatibility)
      */
     public static function createWebhook(string $shop, string $accessToken, string $topic, string $address): array
     {

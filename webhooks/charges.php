@@ -75,19 +75,36 @@ if ($topic === 'app/uninstalled') {
     exit;
 }
 
-if ($topic === 'recurring_application_charges/update' || $topic === 'recurring_application_charges/create') {
+// Handle both REST API webhooks (legacy) and GraphQL webhooks (new)
+if ($topic === 'recurring_application_charges/update' || $topic === 'recurring_application_charges/create' || $topic === 'app_subscriptions/update') {
+    // Handle REST API format (legacy)
     $charge = $payload['recurring_application_charge'] ?? null;
     
+    // Handle GraphQL format (new)
     if (!$charge) {
+        $charge = $payload['app_subscription'] ?? null;
+    }
+    
+    if (!$charge) {
+        error_log("Webhook payload missing charge data. Topic: {$topic}, Payload keys: " . implode(', ', array_keys($payload)));
         http_response_code(400);
         echo "Invalid payload";
         exit;
     }
     
+    // Extract charge ID (handle both REST numeric ID and GraphQL GID format)
     $chargeId = $charge['id'] ?? null;
+    if ($chargeId && str_starts_with($chargeId, 'gid://')) {
+        // Extract numeric ID from GID format: gid://shopify/AppSubscription/123456
+        preg_match('/\/(\d+)$/', $chargeId, $matches);
+        $chargeId = $matches[1] ?? $chargeId;
+    }
+    
+    // Extract status (REST uses 'status', GraphQL might use different field)
     $status = $charge['status'] ?? '';
     
     if (!$chargeId) {
+        error_log("Webhook missing charge ID. Topic: {$topic}");
         http_response_code(400);
         echo "Missing charge ID";
         exit;
@@ -95,15 +112,18 @@ if ($topic === 'recurring_application_charges/update' || $topic === 'recurring_a
     
     // Determine plan type from charge name or amount
     $planType = 'monthly';
-    if (isset($charge['name']) && stripos($charge['name'], 'annual') !== false) {
+    $chargeName = $charge['name'] ?? '';
+    $chargeAmount = $charge['price'] ?? ($charge['lineItems'][0]['plan']['appRecurringPricingDetails']['price']['amount'] ?? null);
+    
+    if (stripos($chargeName, 'annual') !== false) {
         $planType = 'annual';
-    } elseif (isset($charge['price']) && $charge['price'] >= ANNUAL_PRICE) {
+    } elseif ($chargeAmount && $chargeAmount >= ANNUAL_PRICE) {
         $planType = 'annual';
     }
     
     // Update shop's plan status
     $planStatus = 'active';
-    if ($status === 'cancelled' || $status === 'declined') {
+    if ($status === 'cancelled' || $status === 'declined' || $status === 'CANCELLED' || $status === 'DECLINED') {
         $planStatus = 'cancelled';
     }
     
@@ -120,6 +140,8 @@ if ($topic === 'recurring_application_charges/update' || $topic === 'recurring_a
         'plan_status' => $planStatus,
         'charge_id' => (string)$chargeId,
     ]);
+    
+    error_log("Webhook processed: shop={$shop}, topic={$topic}, charge_id={$chargeId}, status={$status}, plan_type={$planType}, plan_status={$planStatus}");
     
     http_response_code(200);
     echo "OK";

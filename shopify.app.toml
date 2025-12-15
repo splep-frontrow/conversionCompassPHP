@@ -1,9 +1,15 @@
+client_id = "808f090a2f6121e2a7b6279b9413b798"
 name = "Conversion Compass PHP"
-type = "custom"
-url = "https://backend.shopconversionhistory.com"
+type = "public"
+application_url = "https://backend.shopconversionhistory.com/index.php"
+embedded = true
 
 [auth]
 redirect_urls = ["https://backend.shopconversionhistory.com/auth/callback.php"]
+
+[access_scopes]
+scopes = "read_orders"
+optional_scopes = []
 
 [webhooks]
 api_version = "2024-10"

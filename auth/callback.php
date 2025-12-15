@@ -343,7 +343,27 @@ try {
         error_log("app/uninstalled webhook already exists for shop: {$shop}");
     }
     
-    // Register recurring_application_charges webhooks if needed
+    // Register app subscription webhooks (GraphQL billing API)
+    // Use GraphQL webhook for app_subscriptions/update (required for public apps)
+    $graphqlWebhookTopic = 'app_subscriptions/update';
+    if (!in_array($graphqlWebhookTopic, $existingTopics)) {
+        $webhookResponse = ShopifyClient::createWebhookGraphQL(
+            $shop,
+            $accessToken,
+            $graphqlWebhookTopic,
+            $webhookBaseUrl . '/webhooks/charges.php'
+        );
+        
+        if ($webhookResponse['status'] === 201) {
+            error_log("Successfully registered {$graphqlWebhookTopic} webhook (GraphQL) for shop: {$shop}");
+        } else {
+            error_log("Failed to register {$graphqlWebhookTopic} webhook (GraphQL) for shop: {$shop}, status: {$webhookResponse['status']}, response: " . substr($webhookResponse['raw'] ?? '', 0, 200));
+        }
+    } else {
+        error_log("{$graphqlWebhookTopic} webhook already exists for shop: {$shop}");
+    }
+    
+    // Also register legacy REST API webhooks for backward compatibility (if still supported)
     $chargeTopics = ['recurring_application_charges/create', 'recurring_application_charges/update'];
     foreach ($chargeTopics as $topic) {
         if (!in_array($topic, $existingTopics)) {
@@ -355,9 +375,10 @@ try {
             );
             
             if ($webhookResponse['status'] === 201) {
-                error_log("Successfully registered {$topic} webhook for shop: {$shop}");
+                error_log("Successfully registered {$topic} webhook (REST) for shop: {$shop}");
             } else {
-                error_log("Failed to register {$topic} webhook for shop: {$shop}, status: {$webhookResponse['status']}, response: " . substr($webhookResponse['raw'] ?? '', 0, 200));
+                // Don't log as error - REST webhooks may not be supported for public apps
+                error_log("Note: Could not register {$topic} webhook (REST) for shop: {$shop}, status: {$webhookResponse['status']}. This is expected for public apps using GraphQL billing.");
             }
         } else {
             error_log("{$topic} webhook already exists for shop: {$shop}");

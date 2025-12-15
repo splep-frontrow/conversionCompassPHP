@@ -79,9 +79,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             error_log("subscription.php: Charge creation raw response (first 500 chars): " . substr($response['raw'], 0, 500));
         }
         
+        // Handle GraphQL response (status 200) or REST response (status 201)
+        $confirmationUrl = null;
         if ($response['status'] === 201 && isset($response['body']['recurring_application_charge']['confirmation_url'])) {
+            // REST API response format
+            $confirmationUrl = $response['body']['recurring_application_charge']['confirmation_url'];
+        } elseif ($response['status'] === 200 && isset($response['body']['recurring_application_charge']['confirmation_url'])) {
+            // GraphQL response format (transformed to match REST format)
+            $confirmationUrl = $response['body']['recurring_application_charge']['confirmation_url'];
+        }
+        
+        if ($confirmationUrl) {
             // Redirect to Shopify charge confirmation
-            header('Location: ' . $response['body']['recurring_application_charge']['confirmation_url']);
+            header('Location: ' . $confirmationUrl);
             exit;
         } else {
             // Handle 403 Forbidden error specifically
@@ -89,13 +99,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $error = 'Your app installation is missing billing permissions. Please reinstall the app to enable subscription purchases. <a href="/install.php?shop=' . urlencode($shop) . '">Click here to reinstall</a>.';
                 error_log("subscription.php: 403 Forbidden - Access token missing billing scopes. Shop needs to reinstall app.");
             } else {
-                // Extract error message from response
+                // Extract error message from response (handle both REST and GraphQL formats)
                 $errorMessage = 'Failed to create charge.';
-                if (isset($response['body']['errors'])) {
+                
+                // Check for GraphQL userErrors
+                if (isset($response['body']['data']['appSubscriptionCreate']['userErrors'])) {
+                    $userErrors = $response['body']['data']['appSubscriptionCreate']['userErrors'];
+                    $errorMessage .= ' ' . json_encode($userErrors);
+                }
+                // Check for GraphQL errors
+                elseif (isset($response['body']['errors'])) {
                     $errorMessage .= ' ' . json_encode($response['body']['errors']);
-                } elseif (isset($response['body']['error'])) {
+                }
+                // Check for REST API errors
+                elseif (isset($response['body']['error'])) {
                     $errorMessage .= ' ' . $response['body']['error'];
                 }
+                
                 $error = $errorMessage;
             }
         }

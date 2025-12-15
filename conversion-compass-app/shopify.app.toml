@@ -2,7 +2,7 @@
 
 client_id = "808f090a2f6121e2a7b6279b9413b798"
 name = "Conversion Compass App"
-type = "custom"
+type = "public"
 application_url = "https://backend.shopconversionhistory.com/index.php"
 embedded = true
 
