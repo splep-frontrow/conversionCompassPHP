@@ -43,15 +43,24 @@ GRAPHQL;
             error_log("WARNING: read_orders scope not found in granted scopes!");
         }
         
-        // Try different query formats
+        // Convert date strings to timestamps for filtering
+        $startTimestamp = strtotime($startDate);
+        $endTimestamp = strtotime($endDate);
+        
+        if ($startTimestamp === false || $endTimestamp === false) {
+            error_log("Invalid date format: startDate={$startDate}, endDate={$endDate}");
+            return [];
+        }
+        
+        // Try different query formats (all WITH date filters - no fallback without dates)
         $queryStrings = [
             // Format 1: Full ISO 8601 with T and Z
             "financial_status:paid created_at:>={$startDate} created_at:<={$endDate}",
             // Format 2: Date only (no time)
             "financial_status:paid created_at:>=" . substr($startDate, 0, 10) . " created_at:<=" . substr($endDate, 0, 10),
-            // Format 3: Without date filters (fallback)
-            "financial_status:paid",
         ];
+        
+        $allOrders = [];
         
         foreach ($queryStrings as $index => $queryString) {
             error_log("Trying query format " . ($index + 1) . ": {$queryString}");
@@ -116,12 +125,6 @@ GRAPHQL;
                     $order = $edge['node'] ?? null;
                     if ($order) {
                         $orders[] = $order;
-                        // Log first order structure for debugging
-                        if (count($orders) === 1) {
-                            error_log("First order structure: " . json_encode(array_keys($order)));
-                            error_log("First order name: " . ($order['name'] ?? 'N/A'));
-                            error_log("First order createdAt: " . ($order['createdAt'] ?? 'N/A'));
-                        }
                     }
                 }
 
@@ -130,15 +133,38 @@ GRAPHQL;
                 $cursor = $hasNextPage ? ($pageInfo['endCursor'] ?? null) : null;
             }
             
-            // If we got orders, return them (even if from fallback query without dates)
+            // If we got orders with this format, use them and break
             if (!empty($orders)) {
+                $allOrders = $orders;
                 error_log("Total orders retrieved: " . count($orders) . " using query format " . ($index + 1));
-                return $orders;
+                break; // Success with this format, no need to try others
             }
         }
 
-        error_log("No orders found with any query format");
-        return [];
+        // Filter orders by date range on the client side as a safety measure
+        // This ensures we only return orders within the specified date range
+        $filteredOrders = [];
+        foreach ($allOrders as $order) {
+            $createdAt = $order['createdAt'] ?? null;
+            if (!$createdAt) {
+                continue; // Skip orders without createdAt
+            }
+            
+            $orderTimestamp = strtotime($createdAt);
+            if ($orderTimestamp === false) {
+                error_log("Invalid createdAt format for order: " . ($order['name'] ?? 'unknown'));
+                continue;
+            }
+            
+            // Only include orders within the date range
+            if ($orderTimestamp >= $startTimestamp && $orderTimestamp <= $endTimestamp) {
+                $filteredOrders[] = $order;
+            }
+        }
+        
+        error_log("Filtered orders from " . count($allOrders) . " to " . count($filteredOrders) . " within date range");
+        
+        return $filteredOrders;
     }
 
     /**
