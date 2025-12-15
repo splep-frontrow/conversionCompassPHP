@@ -90,9 +90,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
         
         if ($confirmationUrl) {
-            // Redirect to Shopify charge confirmation
-            header('Location: ' . $confirmationUrl);
-            exit;
+            error_log("subscription.php: Redirecting to confirmation URL: {$confirmationUrl}");
+            
+            // For embedded apps, use JavaScript to redirect the top window
+            // For non-embedded apps, use header redirect
+            if ($host) {
+                // Embedded app - redirect top window using JavaScript
+                echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Redirecting...</title></head><body>';
+                echo '<script>window.top.location.href = ' . json_encode($confirmationUrl) . ';</script>';
+                echo '<p>Redirecting to payment confirmation... <a href="' . htmlspecialchars($confirmationUrl, ENT_QUOTES, 'UTF-8') . '">Click here if not redirected</a></p>';
+                echo '</body></html>';
+                exit;
+            } else {
+                // Non-embedded app - use header redirect
+                header('Location: ' . $confirmationUrl);
+                exit;
+            }
         } else {
             // Handle 403 Forbidden error specifically
             if ($response['status'] === 403) {
