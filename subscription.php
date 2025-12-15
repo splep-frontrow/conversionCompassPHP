@@ -105,11 +105,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 // Check for GraphQL userErrors
                 if (isset($response['body']['data']['appSubscriptionCreate']['userErrors'])) {
                     $userErrors = $response['body']['data']['appSubscriptionCreate']['userErrors'];
-                    $errorMessage .= ' ' . json_encode($userErrors);
+                    $errorMessages = array_column($userErrors, 'message');
+                    
+                    // Check for specific error about Managed Pricing
+                    if (in_array('Managed Pricing Apps cannot use the Billing API (to create charges).', $errorMessages)) {
+                        $errorMessage = 'Your app is configured with "Managed Pricing" in the Shopify Partners Dashboard. To enable subscription purchases, you must change the app to "Manual Pricing" in the Partners Dashboard. Go to Apps → Your App → App Setup → Pricing, and change from "Managed Pricing" to "Manual Pricing".';
+                    } else {
+                        $errorMessage .= ' ' . implode('. ', $errorMessages);
+                    }
                 }
                 // Check for GraphQL errors
                 elseif (isset($response['body']['errors'])) {
-                    $errorMessage .= ' ' . json_encode($response['body']['errors']);
+                    $errors = $response['body']['errors'];
+                    $errorMessages = array_column($errors, 'message');
+                    
+                    // Check for specific error about Managed Pricing
+                    if (in_array('Managed Pricing Apps cannot use the Billing API (to create charges).', $errorMessages)) {
+                        $errorMessage = 'Your app is configured with "Managed Pricing" in the Shopify Partners Dashboard. To enable subscription purchases, you must change the app to "Manual Pricing" in the Partners Dashboard. Go to Apps → Your App → App Setup → Pricing, and change from "Managed Pricing" to "Manual Pricing".';
+                    } else {
+                        $errorMessage .= ' ' . implode('. ', $errorMessages);
+                    }
                 }
                 // Check for REST API errors
                 elseif (isset($response['body']['error'])) {
