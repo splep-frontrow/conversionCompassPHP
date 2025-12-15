@@ -59,6 +59,8 @@ if (empty($accessToken)) {
 }
 
 $planStatus = SubscriptionHelper::getPlanStatus($shop);
+$pendingConfirmationUrl = null;
+$successMessage = null;
 
 // Handle charge creation
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -90,70 +92,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
         
         if ($confirmationUrl) {
-            error_log("subscription.php: Redirecting to confirmation URL: {$confirmationUrl}");
-            
-            // For embedded apps, use App Bridge Redirect action
-            // For non-embedded apps, use header redirect
-            if ($host) {
-                // Embedded app - use App Bridge Redirect action to properly break out of iframe
-                echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Redirecting...</title>';
-                echo '<meta name="shopify-api-key" content="' . htmlspecialchars(SHOPIFY_API_KEY, ENT_QUOTES, 'UTF-8') . '" />';
-                echo '<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>';
-                echo '<script>';
-                echo '(function() {';
-                echo '  function doRedirect() {';
-                echo '    var app = window.shopify && window.shopify.app ? window.shopify.app : null;';
-                echo '    if (app && app.actions && app.actions.Redirect) {';
-                echo '      var redirect = app.actions.Redirect.create(app);';
-                echo '      redirect.dispatch(app.actions.Redirect.Action.REMOTE, {';
-                echo '        url: ' . json_encode($confirmationUrl);
-                echo '      });';
-                echo '    } else {';
-                echo '      // Fallback: try to redirect top window';
-                echo '      try {';
-                echo '        window.top.location.href = ' . json_encode($confirmationUrl) . ';';
-                echo '      } catch(e) {';
-                echo '        // If that fails, redirect current window';
-                echo '        window.location.href = ' . json_encode($confirmationUrl) . ';';
-                echo '      }';
-                echo '    }';
-                echo '  }';
-                echo '  // Wait for App Bridge to initialize';
-                echo '  if (window.shopify && window.shopify.app) {';
-                echo '    doRedirect();';
-                echo '  } else if (window.shopify && typeof window.shopify.initializeAppBridge === "function") {';
-                echo '    var params = new URLSearchParams(window.location.search);';
-                echo '    var shop = params.get("shop");';
-                echo '    var host = params.get("host");';
-                echo '    var appConfig = {';
-                echo '      apiKey: "' . htmlspecialchars(SHOPIFY_API_KEY, ENT_QUOTES, 'UTF-8') . '",';
-                echo '      shopOrigin: shop';
-                echo '    };';
-                echo '    if (host) appConfig.host = host;';
-                echo '    window.shopify.initializeAppBridge(appConfig).then(function(appInstance) {';
-                echo '      window.shopifyApp = appInstance;';
-                echo '      doRedirect();';
-                echo '    }).catch(function() {';
-                echo '      // Fallback if App Bridge fails';
-                echo '      window.top.location.href = ' . json_encode($confirmationUrl) . ';';
-                echo '    });';
-                echo '  } else {';
-                echo '    // Fallback if App Bridge not available';
-                echo '    setTimeout(function() {';
-                echo '      window.top.location.href = ' . json_encode($confirmationUrl) . ';';
-                echo '    }, 100);';
-                echo '  }';
-                echo '})();';
-                echo '</script>';
-                echo '</head><body>';
-                echo '<p>Redirecting to payment confirmation... <a href="' . htmlspecialchars($confirmationUrl, ENT_QUOTES, 'UTF-8') . '">Click here if not redirected</a></p>';
-                echo '</body></html>';
-                exit;
-            } else {
-                // Non-embedded app - use header redirect
-                header('Location: ' . $confirmationUrl);
-                exit;
-            }
+            $pendingConfirmationUrl = $confirmationUrl;
+            $successMessage = 'Redirecting you to Shopify to confirm the subscription...';
+            error_log("subscription.php: Received confirmation URL, will redirect client-side: {$confirmationUrl}");
         } else {
             // Handle 403 Forbidden error specifically
             if ($response['status'] === 403) {
@@ -450,6 +391,14 @@ $formAction = '?' . http_build_query($formActionParams);
             border-radius: 4px;
             color: #c62828;
         }
+        .success {
+            background: #e7f5f0;
+            border-left: 3px solid #008060;
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 4px;
+            color: #004c3f;
+        }
         .info-row {
             padding: 8px 0;
             border-bottom: 1px solid #e1e3e5;
@@ -490,7 +439,7 @@ $formAction = '?' . http_build_query($formActionParams);
         </div>
     </div>
     
-    <div class="main-content">
+<div class="main-content">
         <div class="container">
     <div class="card">
         <h1>
@@ -504,6 +453,9 @@ $formAction = '?' . http_build_query($formActionParams);
         
         <?php if (isset($error)): ?>
             <div class="error"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div>
+        <?php endif; ?>
+        <?php if (!empty($successMessage)): ?>
+            <div class="success"><?= htmlspecialchars($successMessage, ENT_QUOTES, 'UTF-8') ?></div>
         <?php endif; ?>
 
         <div class="info-row">
@@ -583,6 +535,77 @@ $formAction = '?' . http_build_query($formActionParams);
     </div>
 </div>
 
+<?php if (!empty($pendingConfirmationUrl)): ?>
+<script>
+    (function() {
+        var confirmationUrl = <?= json_encode($pendingConfirmationUrl) ?>;
+        var redirected = false;
+        var attempts = 0;
+        var maxAttempts = 20;
+
+        function redirectWithAppBridge() {
+            if (redirected) {
+                return true;
+            }
+
+            try {
+                if (window.shopify && window.shopify.app && typeof window.shopify.app.redirect === 'function') {
+                    window.shopify.app.redirect(confirmationUrl);
+                    redirected = true;
+                    return true;
+                }
+            } catch (err) {
+                console.warn('Shopify CDN redirect failed', err);
+            }
+
+            try {
+                var appInstance = window.shopifyApp;
+                var appBridgeGlobal = window['app-bridge'] || window.appBridge || null;
+                if (appInstance && appBridgeGlobal && appBridgeGlobal.actions && appBridgeGlobal.actions.Redirect) {
+                    var Redirect = appBridgeGlobal.actions.Redirect;
+                    var redirect = Redirect.create(appInstance);
+                    redirect.dispatch(Redirect.Action.REMOTE, confirmationUrl);
+                    redirected = true;
+                    return true;
+                }
+            } catch (err) {
+                console.warn('App Bridge redirect action failed', err);
+            }
+
+            try {
+                if (window.top && window.top !== window) {
+                    window.top.location.href = confirmationUrl;
+                } else {
+                    window.location.href = confirmationUrl;
+                }
+                redirected = true;
+                return true;
+            } catch (err) {
+                console.warn('Top-level redirect failed', err);
+            }
+
+            return false;
+        }
+
+        function ensureRedirect() {
+            if (redirected) {
+                return;
+            }
+            attempts++;
+            if (!redirectWithAppBridge() && attempts < maxAttempts) {
+                setTimeout(ensureRedirect, 250);
+            }
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', ensureRedirect);
+        } else {
+            ensureRedirect();
+        }
+    })();
+</script>
+<?php endif; ?>
+
 <script>
     (function() {
         // Wait for App Bridge to initialize
@@ -623,4 +646,3 @@ $formAction = '?' . http_build_query($formActionParams);
 </script>
 </body>
 </html>
-
