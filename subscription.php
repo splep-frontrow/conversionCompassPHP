@@ -92,12 +92,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if ($confirmationUrl) {
             error_log("subscription.php: Redirecting to confirmation URL: {$confirmationUrl}");
             
-            // For embedded apps, use JavaScript to redirect the top window
+            // For embedded apps, use App Bridge Redirect action
             // For non-embedded apps, use header redirect
             if ($host) {
-                // Embedded app - redirect top window using JavaScript
-                echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Redirecting...</title></head><body>';
-                echo '<script>window.top.location.href = ' . json_encode($confirmationUrl) . ';</script>';
+                // Embedded app - use App Bridge Redirect action to properly break out of iframe
+                echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Redirecting...</title>';
+                echo '<meta name="shopify-api-key" content="' . htmlspecialchars(SHOPIFY_API_KEY, ENT_QUOTES, 'UTF-8') . '" />';
+                echo '<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>';
+                echo '<script>';
+                echo '(function() {';
+                echo '  function doRedirect() {';
+                echo '    var app = window.shopify && window.shopify.app ? window.shopify.app : null;';
+                echo '    if (app && app.actions && app.actions.Redirect) {';
+                echo '      var redirect = app.actions.Redirect.create(app);';
+                echo '      redirect.dispatch(app.actions.Redirect.Action.REMOTE, {';
+                echo '        url: ' . json_encode($confirmationUrl);
+                echo '      });';
+                echo '    } else {';
+                echo '      // Fallback: try to redirect top window';
+                echo '      try {';
+                echo '        window.top.location.href = ' . json_encode($confirmationUrl) . ';';
+                echo '      } catch(e) {';
+                echo '        // If that fails, redirect current window';
+                echo '        window.location.href = ' . json_encode($confirmationUrl) . ';';
+                echo '      }';
+                echo '    }';
+                echo '  }';
+                echo '  // Wait for App Bridge to initialize';
+                echo '  if (window.shopify && window.shopify.app) {';
+                echo '    doRedirect();';
+                echo '  } else if (window.shopify && typeof window.shopify.initializeAppBridge === "function") {';
+                echo '    var params = new URLSearchParams(window.location.search);';
+                echo '    var shop = params.get("shop");';
+                echo '    var host = params.get("host");';
+                echo '    var appConfig = {';
+                echo '      apiKey: "' . htmlspecialchars(SHOPIFY_API_KEY, ENT_QUOTES, 'UTF-8') . '",';
+                echo '      shopOrigin: shop';
+                echo '    };';
+                echo '    if (host) appConfig.host = host;';
+                echo '    window.shopify.initializeAppBridge(appConfig).then(function(appInstance) {';
+                echo '      window.shopifyApp = appInstance;';
+                echo '      doRedirect();';
+                echo '    }).catch(function() {';
+                echo '      // Fallback if App Bridge fails';
+                echo '      window.top.location.href = ' . json_encode($confirmationUrl) . ';';
+                echo '    });';
+                echo '  } else {';
+                echo '    // Fallback if App Bridge not available';
+                echo '    setTimeout(function() {';
+                echo '      window.top.location.href = ' . json_encode($confirmationUrl) . ';';
+                echo '    }, 100);';
+                echo '  }';
+                echo '})();';
+                echo '</script>';
+                echo '</head><body>';
                 echo '<p>Redirecting to payment confirmation... <a href="' . htmlspecialchars($confirmationUrl, ENT_QUOTES, 'UTF-8') . '">Click here if not redirected</a></p>';
                 echo '</body></html>';
                 exit;
