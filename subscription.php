@@ -15,6 +15,7 @@ require_once __DIR__ . '/helpers/SubscriptionHelper.php';
 require_once __DIR__ . '/helpers/SessionTokenHelper.php';
 
 $shop = isset($_GET['shop']) ? sanitize_shop_domain($_GET['shop']) : null;
+$host = isset($_GET['host']) ? $_GET['host'] : null; // Capture host parameter for App Bridge
 
 if (!$shop) {
     http_response_code(400);
@@ -65,14 +66,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $planType = $_POST['plan_type'] ?? '';
         $amount = $planType === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
         
+        error_log("subscription.php: Attempting to create charge for shop: {$shop}, plan_type: {$planType}, amount: {$amount}");
+        
         $response = ShopifyClient::createRecurringCharge($shop, $accessToken, $amount, $planType);
+        
+        // Log detailed error information
+        error_log("subscription.php: Charge creation response status: " . $response['status']);
+        if (isset($response['body'])) {
+            error_log("subscription.php: Charge creation response body: " . json_encode($response['body']));
+        }
+        if (isset($response['raw'])) {
+            error_log("subscription.php: Charge creation raw response (first 500 chars): " . substr($response['raw'], 0, 500));
+        }
         
         if ($response['status'] === 201 && isset($response['body']['recurring_application_charge']['confirmation_url'])) {
             // Redirect to Shopify charge confirmation
             header('Location: ' . $response['body']['recurring_application_charge']['confirmation_url']);
             exit;
         } else {
-            $error = 'Failed to create charge. Please try again.';
+            // Handle 403 Forbidden error specifically
+            if ($response['status'] === 403) {
+                $error = 'Your app installation is missing billing permissions. Please reinstall the app to enable subscription purchases. <a href="/install.php?shop=' . urlencode($shop) . '">Click here to reinstall</a>.';
+                error_log("subscription.php: 403 Forbidden - Access token missing billing scopes. Shop needs to reinstall app.");
+            } else {
+                // Extract error message from response
+                $errorMessage = 'Failed to create charge.';
+                if (isset($response['body']['errors'])) {
+                    $errorMessage .= ' ' . json_encode($response['body']['errors']);
+                } elseif (isset($response['body']['error'])) {
+                    $errorMessage .= ' ' . $response['body']['error'];
+                }
+                $error = $errorMessage;
+            }
         }
     } elseif ($_POST['action'] === 'cancel_charge' && !empty($planStatus['billing_charge_id'])) {
         $response = ShopifyClient::cancelCharge($shop, $accessToken, $planStatus['billing_charge_id']);
@@ -96,6 +121,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 $response = ShopifyClient::apiRequest($shop, $accessToken, '/admin/api/2024-10/shop.json', 'GET');
 $shopInfo = $response['status'] === 200 ? ($response['body']['shop'] ?? []) : [];
 $shopName = $shopInfo['name'] ?? $shop;
+
+// Build form action URL with shop and host parameters
+$formActionParams = ['shop' => $shop];
+if ($host) {
+    $formActionParams['host'] = $host;
+}
+$formAction = '?' . http_build_query($formActionParams);
 
 ?>
 <!DOCTYPE html>
@@ -401,7 +433,7 @@ $shopName = $shopInfo['name'] ?? $shop;
             <h2>Upgrade Your Plan</h2>
             <p>Choose a subscription plan to unlock premium features:</p>
             
-            <form method="POST" action="?shop=<?= urlencode($shop) ?>">
+            <form method="POST" action="<?= htmlspecialchars($formAction, ENT_QUOTES, 'UTF-8') ?>">
                 <input type="hidden" name="action" value="create_charge">
                 <div class="pricing">
                     <div class="pricing-option">
@@ -423,7 +455,7 @@ $shopName = $shopInfo['name'] ?? $shop;
             <h2>Manage Subscription</h2>
             <p>Your <?= ucfirst($planStatus['plan_type']) ?> subscription is active.</p>
             
-            <form method="POST" action="?shop=<?= urlencode($shop) ?>" onsubmit="return confirm('Are you sure you want to cancel your subscription?');">
+            <form method="POST" action="<?= htmlspecialchars($formAction, ENT_QUOTES, 'UTF-8') ?>" onsubmit="return confirm('Are you sure you want to cancel your subscription?');">
                 <input type="hidden" name="action" value="cancel_charge">
                 <button type="submit" class="btn btn-danger">Cancel Subscription</button>
             </form>
@@ -433,7 +465,7 @@ $shopName = $shopInfo['name'] ?? $shop;
             <h2>Subscription Cancelled</h2>
             <p>Your subscription has been cancelled. You can upgrade again at any time.</p>
             
-            <form method="POST" action="?shop=<?= urlencode($shop) ?>">
+            <form method="POST" action="<?= htmlspecialchars($formAction, ENT_QUOTES, 'UTF-8') ?>">
                 <input type="hidden" name="action" value="create_charge">
                 <div class="pricing">
                     <div class="pricing-option">
