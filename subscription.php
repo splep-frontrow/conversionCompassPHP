@@ -224,40 +224,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         }
     } elseif ($_POST['action'] === 'cancel_charge' && !empty($planStatus['billing_charge_id'])) {
-        $response = ShopifyClient::cancelCharge($shop, $accessToken, $planStatus['billing_charge_id']);
-        
-        if ($response['status'] === 200) {
-            // Update plan status
-            $updateStmt = $db->prepare('UPDATE shops SET plan_status = :status WHERE shop_domain = :shop');
+        // Shopify API can only cancel ACTIVE subscriptions, not PENDING ones
+        if ($planStatus['plan_status'] === 'pending') {
+            // For pending subscriptions, just clear from database
+            // Shopify will automatically expire pending subscriptions that aren't confirmed
+            $updateStmt = $db->prepare('UPDATE shops SET plan_status = :status, plan_type = :plan_type, billing_charge_id = NULL WHERE shop_domain = :shop');
             $updateStmt->execute([
                 'shop' => $shop,
                 'status' => 'cancelled',
+                'plan_type' => 'free',
             ]);
             header('Location: /subscription.php?shop=' . urlencode($shop));
             exit;
+        }
+        
+        // For active subscriptions, use Shopify API
+        $response = ShopifyClient::cancelCharge($shop, $accessToken, $planStatus['billing_charge_id']);
+        
+        if ($response['status'] === 200) {
+            // Check for user errors
+            if (isset($response['body']['data']['appSubscriptionCancel']['userErrors']) && 
+                !empty($response['body']['data']['appSubscriptionCancel']['userErrors'])) {
+                $userErrors = $response['body']['data']['appSubscriptionCancel']['userErrors'];
+                $errorMessages = array_column($userErrors, 'message');
+                $error = 'Failed to cancel subscription: ' . implode('. ', $errorMessages);
+            } else {
+                // Success
+                $updateStmt = $db->prepare('UPDATE shops SET plan_status = :status WHERE shop_domain = :shop');
+                $updateStmt->execute([
+                    'shop' => $shop,
+                    'status' => 'cancelled',
+                ]);
+                header('Location: /subscription.php?shop=' . urlencode($shop));
+                exit;
+            }
         } else {
-            $error = 'Failed to cancel charge. Please try again.';
+            // Extract error details
+            $errorMessage = 'Failed to cancel subscription.';
+            if (isset($response['body']['data']['appSubscriptionCancel']['userErrors'])) {
+                $userErrors = $response['body']['data']['appSubscriptionCancel']['userErrors'];
+                $errorMessages = array_column($userErrors, 'message');
+                $errorMessage .= ' ' . implode('. ', $errorMessages);
+            } elseif (isset($response['body']['errors'])) {
+                $errors = $response['body']['errors'];
+                $errorMessages = array_column($errors, 'message');
+                $errorMessage .= ' ' . implode('. ', $errorMessages);
+            }
+            $error = $errorMessage;
         }
     } elseif ($_POST['action'] === 'cancel_pending') {
-        // Cancel pending subscription (even if no charge ID - clear the pending status)
-        $updateStmt = $db->prepare('UPDATE shops SET plan_status = :status, plan_type = :plan_type WHERE shop_domain = :shop');
+        // Pending subscriptions cannot be canceled via Shopify API
+        // They expire automatically if not confirmed
+        // Just clear from our database
+        $updateStmt = $db->prepare('UPDATE shops SET plan_status = :status, plan_type = :plan_type, billing_charge_id = NULL WHERE shop_domain = :shop');
         $updateStmt->execute([
             'shop' => $shop,
             'status' => 'cancelled',
             'plan_type' => 'free',
         ]);
         
-        // If there's a billing_charge_id, try to cancel it in Shopify too
-        if (!empty($planStatus['billing_charge_id'])) {
-            try {
-                $response = ShopifyClient::cancelCharge($shop, $accessToken, $planStatus['billing_charge_id']);
-                if ($response['status'] !== 200) {
-                    error_log("subscription.php: Failed to cancel charge in Shopify for shop: {$shop}, but cleared pending status in database");
-                }
-            } catch (Exception $e) {
-                error_log("subscription.php: Error canceling charge in Shopify for shop: {$shop}, error: " . $e->getMessage());
-            }
-        }
+        error_log("subscription.php: Cleared pending subscription from database for shop: {$shop}. Pending subscription in Shopify will expire automatically if not confirmed.");
         
         header('Location: /subscription.php?shop=' . urlencode($shop));
         exit;
@@ -884,17 +910,11 @@ $formAction = '?' . http_build_query($formActionParams);
             <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e1e3e5;">
                 <h3 style="margin-top: 0; font-size: 1rem;">Cancel Pending Subscription</h3>
                 <p style="color: #6d7175; font-size: 0.9rem;">If you don't want to proceed with this subscription, you can cancel it and choose a different plan.</p>
-                <?php if (!empty($planStatus['billing_charge_id'])): ?>
-                    <form method="POST" action="<?= htmlspecialchars($formAction, ENT_QUOTES, 'UTF-8') ?>" onsubmit="return confirm('Are you sure you want to cancel your pending subscription?');" style="margin-top: 16px;">
-                        <input type="hidden" name="action" value="cancel_charge">
-                        <button type="submit" class="btn btn-danger">Cancel Pending Subscription</button>
-                    </form>
-                <?php else: ?>
-                    <form method="POST" action="<?= htmlspecialchars($formAction, ENT_QUOTES, 'UTF-8') ?>" onsubmit="return confirm('Are you sure you want to cancel your pending subscription?');" style="margin-top: 16px;">
-                        <input type="hidden" name="action" value="cancel_pending">
-                        <button type="submit" class="btn btn-danger">Cancel Pending Subscription</button>
-                    </form>
-                <?php endif; ?>
+                <form method="POST" action="<?= htmlspecialchars($formAction, ENT_QUOTES, 'UTF-8') ?>" onsubmit="return confirm('Are you sure you want to cancel your pending subscription? The pending subscription will be cleared and you can choose a different plan.');" style="margin-top: 16px;">
+                    <input type="hidden" name="action" value="cancel_pending">
+                    <button type="submit" class="btn btn-danger">Cancel Pending Subscription</button>
+                </form>
+                <p style="color: #6d7175; font-size: 0.85rem; margin-top: 8px;">Note: Pending subscriptions cannot be canceled via Shopify's API. The pending subscription will automatically expire if not confirmed. This action clears it from our system so you can choose a different plan.</p>
             </div>
         </div>
     <?php elseif ($planStatus['plan_type'] !== 'free' && $planStatus['plan_status'] === 'active'): ?>
