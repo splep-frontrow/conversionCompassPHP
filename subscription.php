@@ -59,34 +59,48 @@ if (empty($accessToken)) {
 }
 
 $planStatus = SubscriptionHelper::getPlanStatus($shop);
+// Ensure plan_status is valid (fallback to 'active' if invalid)
+if (!in_array($planStatus['plan_status'], ['active', 'cancelled', 'expired', 'pending'])) {
+    $planStatus['plan_status'] = 'active';
+}
 $pendingConfirmationUrl = null;
 $successMessage = null;
 
-// If there's a billing_charge_id, check the actual status from Shopify
+// If there's a billing_charge_id, check the actual status from Shopify (non-blocking)
 $actualChargeStatus = null;
-if (!empty($planStatus['billing_charge_id'])) {
-    $chargeStatusResponse = ShopifyClient::getChargeStatus($shop, $accessToken, $planStatus['billing_charge_id']);
-    if ($chargeStatusResponse['status'] === 200 && isset($chargeStatusResponse['body']['data']['appSubscription'])) {
-        $actualChargeStatus = $chargeStatusResponse['body']['data']['appSubscription'];
-        // Update plan_status based on actual Shopify status
-        $shopifyStatus = strtolower($actualChargeStatus['status'] ?? '');
-        if ($shopifyStatus === 'active' || $shopifyStatus === 'accepted') {
-            $planStatus['plan_status'] = 'active';
-        } elseif ($shopifyStatus === 'pending' || $shopifyStatus === 'pending_acceptance') {
-            $planStatus['plan_status'] = 'pending';
-        } elseif ($shopifyStatus === 'cancelled' || $shopifyStatus === 'declined' || $shopifyStatus === 'expired') {
-            $planStatus['plan_status'] = 'cancelled';
-        }
-        
-        // Also update plan_type from actual charge if available
-        if (isset($actualChargeStatus['lineItems'][0]['plan']['appRecurringPricingDetails']['interval'])) {
-            $interval = $actualChargeStatus['lineItems'][0]['plan']['appRecurringPricingDetails']['interval'];
-            if ($interval === 'ANNUAL') {
-                $planStatus['plan_type'] = 'annual';
-            } elseif ($interval === 'EVERY_30_DAYS') {
-                $planStatus['plan_type'] = 'monthly';
+if (!empty($planStatus['billing_charge_id']) && !empty($accessToken)) {
+    try {
+        $chargeStatusResponse = ShopifyClient::getChargeStatus($shop, $accessToken, $planStatus['billing_charge_id']);
+        if ($chargeStatusResponse['status'] === 200 && isset($chargeStatusResponse['body']['data']['appSubscription'])) {
+            $actualChargeStatus = $chargeStatusResponse['body']['data']['appSubscription'];
+            // Update plan_status based on actual Shopify status
+            $shopifyStatus = strtolower($actualChargeStatus['status'] ?? '');
+            if ($shopifyStatus === 'active' || $shopifyStatus === 'accepted') {
+                $planStatus['plan_status'] = 'active';
+            } elseif ($shopifyStatus === 'pending' || $shopifyStatus === 'pending_acceptance') {
+                $planStatus['plan_status'] = 'pending';
+            } elseif ($shopifyStatus === 'cancelled' || $shopifyStatus === 'declined' || $shopifyStatus === 'expired') {
+                $planStatus['plan_status'] = 'cancelled';
+            }
+            
+            // Also update plan_type from actual charge if available
+            if (isset($actualChargeStatus['lineItems'][0]['plan']['appRecurringPricingDetails']['interval'])) {
+                $interval = $actualChargeStatus['lineItems'][0]['plan']['appRecurringPricingDetails']['interval'];
+                if ($interval === 'ANNUAL') {
+                    $planStatus['plan_type'] = 'annual';
+                } elseif ($interval === 'EVERY_30_DAYS') {
+                    $planStatus['plan_type'] = 'monthly';
+                }
             }
         }
+    } catch (Exception $e) {
+        // Log error but don't break the page
+        error_log("subscription.php: Error fetching charge status for shop: {$shop}, error: " . $e->getMessage());
+        // Continue with database plan_status
+    } catch (Error $e) {
+        // Log error but don't break the page
+        error_log("subscription.php: Fatal error fetching charge status for shop: {$shop}, error: " . $e->getMessage());
+        // Continue with database plan_status
     }
 }
 
@@ -164,44 +178,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $successMessage = 'Redirecting you to Shopify to confirm the subscription...';
                 error_log("subscription.php: Received confirmation URL, will redirect client-side: {$confirmationUrl}");
             } else {
-            // Handle 403 Forbidden error specifically
-            if ($response['status'] === 403) {
-                $error = 'Your app installation is missing billing permissions. Please reinstall the app to enable subscription purchases. <a href="/install.php?shop=' . urlencode($shop) . '">Click here to reinstall</a>.';
-                error_log("subscription.php: 403 Forbidden - Access token missing billing scopes. Shop needs to reinstall app.");
-            } else {
-                // Extract error message from response (handle both REST and GraphQL formats)
-                $errorMessage = 'Failed to create charge.';
-                
-                // Check for GraphQL userErrors
-                if (isset($response['body']['data']['appSubscriptionCreate']['userErrors'])) {
-                    $userErrors = $response['body']['data']['appSubscriptionCreate']['userErrors'];
-                    $errorMessages = array_column($userErrors, 'message');
+                // Handle 403 Forbidden error specifically
+                if ($response['status'] === 403) {
+                    $error = 'Your app installation is missing billing permissions. Please reinstall the app to enable subscription purchases. <a href="/install.php?shop=' . urlencode($shop) . '">Click here to reinstall</a>.';
+                    error_log("subscription.php: 403 Forbidden - Access token missing billing scopes. Shop needs to reinstall app.");
+                } else {
+                    // Extract error message from response (handle both REST and GraphQL formats)
+                    $errorMessage = 'Failed to create charge.';
                     
-                    // Check for specific error about Managed Pricing
-                    if (in_array('Managed Pricing Apps cannot use the Billing API (to create charges).', $errorMessages)) {
-                        $errorMessage = 'Your app is configured with "Managed Pricing" in the Shopify Partners Dashboard. To enable subscription purchases, you must change the app to "Manual Pricing" in the Partners Dashboard. Go to Apps → Your App → App Setup → Pricing, and change from "Managed Pricing" to "Manual Pricing".';
-                    } else {
-                        $errorMessage .= ' ' . implode('. ', $errorMessages);
+                    // Check for GraphQL userErrors
+                    if (isset($response['body']['data']['appSubscriptionCreate']['userErrors'])) {
+                        $userErrors = $response['body']['data']['appSubscriptionCreate']['userErrors'];
+                        $errorMessages = array_column($userErrors, 'message');
+                        
+                        // Check for specific error about Managed Pricing
+                        if (in_array('Managed Pricing Apps cannot use the Billing API (to create charges).', $errorMessages)) {
+                            $errorMessage = 'Your app is configured with "Managed Pricing" in the Shopify Partners Dashboard. To enable subscription purchases, you must change the app to "Manual Pricing" in the Partners Dashboard. Go to Apps → Your App → App Setup → Pricing, and change from "Managed Pricing" to "Manual Pricing".';
+                        } else {
+                            $errorMessage .= ' ' . implode('. ', $errorMessages);
+                        }
                     }
-                }
-                // Check for GraphQL errors
-                elseif (isset($response['body']['errors'])) {
-                    $errors = $response['body']['errors'];
-                    $errorMessages = array_column($errors, 'message');
+                    // Check for GraphQL errors
+                    elseif (isset($response['body']['errors'])) {
+                        $errors = $response['body']['errors'];
+                        $errorMessages = array_column($errors, 'message');
+                        
+                        // Check for specific error about Managed Pricing
+                        if (in_array('Managed Pricing Apps cannot use the Billing API (to create charges).', $errorMessages)) {
+                            $errorMessage = 'Your app is configured with "Managed Pricing" in the Shopify Partners Dashboard. To enable subscription purchases, you must change the app to "Manual Pricing" in the Partners Dashboard. Go to Apps → Your App → App Setup → Pricing, and change from "Managed Pricing" to "Manual Pricing".';
+                        } else {
+                            $errorMessage .= ' ' . implode('. ', $errorMessages);
+                        }
+                    }
+                    // Check for REST API errors
+                    elseif (isset($response['body']['error'])) {
+                        $errorMessage .= ' ' . $response['body']['error'];
+                    }
                     
-                    // Check for specific error about Managed Pricing
-                    if (in_array('Managed Pricing Apps cannot use the Billing API (to create charges).', $errorMessages)) {
-                        $errorMessage = 'Your app is configured with "Managed Pricing" in the Shopify Partners Dashboard. To enable subscription purchases, you must change the app to "Manual Pricing" in the Partners Dashboard. Go to Apps → Your App → App Setup → Pricing, and change from "Managed Pricing" to "Manual Pricing".';
-                    } else {
-                        $errorMessage .= ' ' . implode('. ', $errorMessages);
-                    }
+                    $error = $errorMessage;
                 }
-                // Check for REST API errors
-                elseif (isset($response['body']['error'])) {
-                    $errorMessage .= ' ' . $response['body']['error'];
-                }
-                
-                $error = $errorMessage;
             }
         }
     } elseif ($_POST['action'] === 'cancel_charge' && !empty($planStatus['billing_charge_id'])) {
