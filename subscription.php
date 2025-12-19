@@ -151,6 +151,223 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         } else {
             $error = 'Failed to cancel charge. Please try again.';
         }
+    } elseif ($_POST['action'] === 'change_plan') {
+        $newPlanType = $_POST['plan_type'] ?? '';
+        
+        // Validate new plan type
+        if (!in_array($newPlanType, ['monthly', 'annual'])) {
+            $error = 'Invalid plan type selected.';
+        } elseif ($planStatus['plan_type'] === $newPlanType) {
+            $error = 'You are already on the ' . ucfirst($newPlanType) . ' plan.';
+        } elseif ($planStatus['plan_type'] === 'free') {
+            // If on free plan, just create a new charge (fallback to create_charge flow)
+            $amount = $newPlanType === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
+            error_log("subscription.php: Change plan from free, creating new charge for shop: {$shop}, plan_type: {$newPlanType}, amount: {$amount}");
+            
+            $response = ShopifyClient::createRecurringCharge($shop, $accessToken, $amount, $newPlanType);
+            
+            // Handle confirmation URL
+            $confirmationUrl = null;
+            if ($response['status'] === 201 && isset($response['body']['recurring_application_charge']['confirmation_url'])) {
+                $confirmationUrl = $response['body']['recurring_application_charge']['confirmation_url'];
+            } elseif ($response['status'] === 200 && isset($response['body']['recurring_application_charge']['confirmation_url'])) {
+                $confirmationUrl = $response['body']['recurring_application_charge']['confirmation_url'];
+            }
+            
+            if ($confirmationUrl) {
+                $pendingConfirmationUrl = $confirmationUrl;
+                $successMessage = 'Redirecting you to Shopify to confirm the subscription...';
+            } else {
+                // Extract error message from response (handle both REST and GraphQL formats)
+                $errorMessage = 'Failed to create new subscription.';
+                
+                // Check for GraphQL userErrors
+                if (isset($response['body']['data']['appSubscriptionCreate']['userErrors'])) {
+                    $userErrors = $response['body']['data']['appSubscriptionCreate']['userErrors'];
+                    $errorMessages = array_column($userErrors, 'message');
+                    $errorMessage .= ' ' . implode('. ', $errorMessages);
+                }
+                // Check for GraphQL errors
+                elseif (isset($response['body']['errors'])) {
+                    $errors = $response['body']['errors'];
+                    $errorMessages = array_column($errors, 'message');
+                    $errorMessage .= ' ' . implode('. ', $errorMessages);
+                }
+                // Check for REST API errors
+                elseif (isset($response['body']['error'])) {
+                    $errorMessage .= ' ' . $response['body']['error'];
+                }
+                
+                $error = $errorMessage;
+            }
+        } elseif ($planStatus['plan_status'] !== 'active') {
+            // If plan is cancelled or expired, allow creating new charge
+            $amount = $newPlanType === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
+            error_log("subscription.php: Change plan from inactive plan, creating new charge for shop: {$shop}, plan_type: {$newPlanType}, amount: {$amount}");
+            
+            $response = ShopifyClient::createRecurringCharge($shop, $accessToken, $amount, $newPlanType);
+            
+            // Handle confirmation URL
+            $confirmationUrl = null;
+            if ($response['status'] === 201 && isset($response['body']['recurring_application_charge']['confirmation_url'])) {
+                $confirmationUrl = $response['body']['recurring_application_charge']['confirmation_url'];
+            } elseif ($response['status'] === 200 && isset($response['body']['recurring_application_charge']['confirmation_url'])) {
+                $confirmationUrl = $response['body']['recurring_application_charge']['confirmation_url'];
+            }
+            
+            if ($confirmationUrl) {
+                $pendingConfirmationUrl = $confirmationUrl;
+                $successMessage = 'Redirecting you to Shopify to confirm the subscription...';
+            } else {
+                // Extract error message from response (handle both REST and GraphQL formats)
+                $errorMessage = 'Failed to create new subscription.';
+                
+                // Check for GraphQL userErrors
+                if (isset($response['body']['data']['appSubscriptionCreate']['userErrors'])) {
+                    $userErrors = $response['body']['data']['appSubscriptionCreate']['userErrors'];
+                    $errorMessages = array_column($userErrors, 'message');
+                    $errorMessage .= ' ' . implode('. ', $errorMessages);
+                }
+                // Check for GraphQL errors
+                elseif (isset($response['body']['errors'])) {
+                    $errors = $response['body']['errors'];
+                    $errorMessages = array_column($errors, 'message');
+                    $errorMessage .= ' ' . implode('. ', $errorMessages);
+                }
+                // Check for REST API errors
+                elseif (isset($response['body']['error'])) {
+                    $errorMessage .= ' ' . $response['body']['error'];
+                }
+                
+                $error = $errorMessage;
+            }
+        } else {
+            // Active paid subscription - need to cancel existing and create new
+            if (empty($planStatus['billing_charge_id'])) {
+                // No active charge ID found, try to create new charge directly
+                $amount = $newPlanType === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
+                error_log("subscription.php: Change plan - no billing_charge_id found, creating new charge for shop: {$shop}, plan_type: {$newPlanType}, amount: {$amount}");
+                
+                $response = ShopifyClient::createRecurringCharge($shop, $accessToken, $amount, $newPlanType);
+                
+                // Handle confirmation URL
+                $confirmationUrl = null;
+                if ($response['status'] === 201 && isset($response['body']['recurring_application_charge']['confirmation_url'])) {
+                    $confirmationUrl = $response['body']['recurring_application_charge']['confirmation_url'];
+                } elseif ($response['status'] === 200 && isset($response['body']['recurring_application_charge']['confirmation_url'])) {
+                    $confirmationUrl = $response['body']['recurring_application_charge']['confirmation_url'];
+                }
+                
+                if ($confirmationUrl) {
+                    $pendingConfirmationUrl = $confirmationUrl;
+                    $successMessage = 'Redirecting you to Shopify to confirm the subscription...';
+                } else {
+                    // Extract error message from response (handle both REST and GraphQL formats)
+                    $errorMessage = 'Failed to create new subscription.';
+                    
+                    // Check for GraphQL userErrors
+                    if (isset($response['body']['data']['appSubscriptionCreate']['userErrors'])) {
+                        $userErrors = $response['body']['data']['appSubscriptionCreate']['userErrors'];
+                        $errorMessages = array_column($userErrors, 'message');
+                        $errorMessage .= ' ' . implode('. ', $errorMessages);
+                    }
+                    // Check for GraphQL errors
+                    elseif (isset($response['body']['errors'])) {
+                        $errors = $response['body']['errors'];
+                        $errorMessages = array_column($errors, 'message');
+                        $errorMessage .= ' ' . implode('. ', $errorMessages);
+                    }
+                    // Check for REST API errors
+                    elseif (isset($response['body']['error'])) {
+                        $errorMessage .= ' ' . $response['body']['error'];
+                    }
+                    
+                    $error = $errorMessage;
+                }
+            } else {
+                // Cancel existing charge first
+                error_log("subscription.php: Change plan - cancelling existing charge for shop: {$shop}, charge_id: {$planStatus['billing_charge_id']}");
+                $cancelResponse = ShopifyClient::cancelCharge($shop, $accessToken, $planStatus['billing_charge_id']);
+                
+                if ($cancelResponse['status'] === 200) {
+                    // Successfully cancelled, now create new charge
+                    $amount = $newPlanType === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
+                    error_log("subscription.php: Change plan - creating new charge for shop: {$shop}, plan_type: {$newPlanType}, amount: {$amount}");
+                    
+                    $createResponse = ShopifyClient::createRecurringCharge($shop, $accessToken, $amount, $newPlanType);
+                    
+                    // Handle confirmation URL
+                    $confirmationUrl = null;
+                    if ($createResponse['status'] === 201 && isset($createResponse['body']['recurring_application_charge']['confirmation_url'])) {
+                        $confirmationUrl = $createResponse['body']['recurring_application_charge']['confirmation_url'];
+                    } elseif ($createResponse['status'] === 200 && isset($createResponse['body']['recurring_application_charge']['confirmation_url'])) {
+                        $confirmationUrl = $createResponse['body']['recurring_application_charge']['confirmation_url'];
+                    }
+                    
+                    if ($confirmationUrl) {
+                        $pendingConfirmationUrl = $confirmationUrl;
+                        $successMessage = 'Your current subscription has been cancelled. Redirecting you to confirm your new subscription...';
+                        error_log("subscription.php: Change plan successful, confirmation URL received: {$confirmationUrl}");
+                    } else {
+                        // Cancellation succeeded but creation failed
+                        $error = 'Your current subscription has been cancelled, but we were unable to create the new subscription. Please try again or contact support if the issue persists.';
+                        error_log("subscription.php: Change plan - cancellation succeeded but creation failed for shop: {$shop}");
+                        
+                        // Update database to reflect cancellation
+                        $updateStmt = $db->prepare('UPDATE shops SET plan_status = :status WHERE shop_domain = :shop');
+                        $updateStmt->execute([
+                            'shop' => $shop,
+                            'status' => 'cancelled',
+                        ]);
+                        
+                        // Extract detailed error message
+                        $errorDetails = '';
+                        // Check for GraphQL userErrors
+                        if (isset($createResponse['body']['data']['appSubscriptionCreate']['userErrors'])) {
+                            $userErrors = $createResponse['body']['data']['appSubscriptionCreate']['userErrors'];
+                            $errorMessages = array_column($userErrors, 'message');
+                            $errorDetails = ' Error: ' . implode('. ', $errorMessages);
+                        }
+                        // Check for GraphQL errors
+                        elseif (isset($createResponse['body']['errors'])) {
+                            $errors = $createResponse['body']['errors'];
+                            $errorMessages = array_column($errors, 'message');
+                            $errorDetails = ' Error: ' . implode('. ', $errorMessages);
+                        }
+                        // Check for REST API errors
+                        elseif (isset($createResponse['body']['error'])) {
+                            $errorDetails = ' Error: ' . $createResponse['body']['error'];
+                        }
+                        
+                        $error .= $errorDetails;
+                    }
+                    } else {
+                        // Cancellation failed
+                        $errorMessage = 'Unable to cancel your current subscription. Please try again or contact support.';
+                        error_log("subscription.php: Change plan - cancellation failed for shop: {$shop}, charge_id: {$planStatus['billing_charge_id']}");
+                        
+                        // Don't create new charge if cancellation failed
+                        // Check for GraphQL userErrors
+                        if (isset($cancelResponse['body']['data']['appSubscriptionCancel']['userErrors'])) {
+                            $userErrors = $cancelResponse['body']['data']['appSubscriptionCancel']['userErrors'];
+                            $errorMessages = array_column($userErrors, 'message');
+                            $errorMessage .= ' Error: ' . implode('. ', $errorMessages);
+                        }
+                        // Check for GraphQL errors
+                        elseif (isset($cancelResponse['body']['errors'])) {
+                            $errors = $cancelResponse['body']['errors'];
+                            $errorMessages = array_column($errors, 'message');
+                            $errorMessage .= ' Error: ' . implode('. ', $errorMessages);
+                        }
+                        // Check for REST API errors
+                        elseif (isset($cancelResponse['body']['error'])) {
+                            $errorMessage .= ' Error: ' . $cancelResponse['body']['error'];
+                        }
+                        
+                        $error = $errorMessage;
+                    }
+            }
+        }
     }
 }
 
@@ -503,10 +720,48 @@ $formAction = '?' . http_build_query($formActionParams);
             <h2>Manage Subscription</h2>
             <p>Your <?= ucfirst($planStatus['plan_type']) ?> subscription is active.</p>
             
-            <form method="POST" action="<?= htmlspecialchars($formAction, ENT_QUOTES, 'UTF-8') ?>" onsubmit="return confirm('Are you sure you want to cancel your subscription?');">
-                <input type="hidden" name="action" value="cancel_charge">
-                <button type="submit" class="btn btn-danger">Cancel Subscription</button>
-            </form>
+            <?php
+            $currentPrice = $planStatus['plan_type'] === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
+            $otherPlanType = $planStatus['plan_type'] === 'annual' ? 'monthly' : 'annual';
+            $otherPrice = $otherPlanType === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
+            $isUpgrade = $planStatus['plan_type'] === 'monthly' && $otherPlanType === 'annual';
+            $savingsPercent = $isUpgrade ? number_format((MONTHLY_PRICE * 12 - ANNUAL_PRICE) / (MONTHLY_PRICE * 12) * 100, 0) : 0;
+            ?>
+            
+            <div style="margin: 24px 0; padding: 16px; background: #f6f6f7; border-radius: 8px;">
+                <h3 style="margin-top: 0;">Change Plan</h3>
+                <p>Switch to <?= ucfirst($otherPlanType) ?> billing:</p>
+                
+                <div style="display: flex; align-items: center; gap: 16px; margin: 16px 0;">
+                    <div style="flex: 1;">
+                        <strong><?= ucfirst($planStatus['plan_type']) ?> Plan</strong><br>
+                        <span style="color: #6d7175;">$<?= number_format($currentPrice, 2) ?><?= $planStatus['plan_type'] === 'annual' ? '/yr' : '/mo' ?></span>
+                    </div>
+                    <div style="font-size: 1.5rem; color: #6d7175;">→</div>
+                    <div style="flex: 1;">
+                        <strong><?= ucfirst($otherPlanType) ?> Plan</strong><br>
+                        <span style="color: #008060; font-weight: 600;">$<?= number_format($otherPrice, 2) ?><?= $otherPlanType === 'annual' ? '/yr' : '/mo' ?></span>
+                        <?php if ($isUpgrade): ?>
+                            <br><span style="color: #008060; font-size: 0.9rem;">Save <?= $savingsPercent ?>%</span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                
+                <form method="POST" action="<?= htmlspecialchars($formAction, ENT_QUOTES, 'UTF-8') ?>" onsubmit="return confirm('Are you sure you want to change your plan? Your current subscription will be cancelled and you will need to confirm the new subscription.');" style="margin-top: 16px;">
+                    <input type="hidden" name="action" value="change_plan">
+                    <input type="hidden" name="plan_type" value="<?= htmlspecialchars($otherPlanType, ENT_QUOTES, 'UTF-8') ?>">
+                    <button type="submit" class="btn btn-primary">Switch to <?= ucfirst($otherPlanType) ?> Plan</button>
+                </form>
+            </div>
+            
+            <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e1e3e5;">
+                <h3 style="margin-top: 0;">Cancel Subscription</h3>
+                <p style="color: #6d7175; font-size: 0.9rem;">Cancel your subscription to stop future charges. You can resubscribe at any time.</p>
+                <form method="POST" action="<?= htmlspecialchars($formAction, ENT_QUOTES, 'UTF-8') ?>" onsubmit="return confirm('Are you sure you want to cancel your subscription?');" style="margin-top: 16px;">
+                    <input type="hidden" name="action" value="cancel_charge">
+                    <button type="submit" class="btn btn-danger">Cancel Subscription</button>
+                </form>
+            </div>
         </div>
     <?php elseif ($planStatus['plan_status'] === 'cancelled'): ?>
         <div class="card">
