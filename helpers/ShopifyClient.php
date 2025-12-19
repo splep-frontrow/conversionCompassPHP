@@ -242,6 +242,7 @@ query getAppSubscription(\$id: ID!) {
     name
     status
     currentPeriodEnd
+    confirmationUrl
     lineItems {
       id
       plan {
