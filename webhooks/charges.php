@@ -121,10 +121,15 @@ if ($topic === 'recurring_application_charges/update' || $topic === 'recurring_a
         $planType = 'annual';
     }
     
-    // Update shop's plan status
+    // Update shop's plan status based on charge status
     $planStatus = 'active';
-    if ($status === 'cancelled' || $status === 'declined' || $status === 'CANCELLED' || $status === 'DECLINED') {
+    $statusLower = strtolower($status);
+    if ($statusLower === 'cancelled' || $statusLower === 'declined' || $statusLower === 'expired') {
         $planStatus = 'cancelled';
+    } elseif ($statusLower === 'pending' || $statusLower === 'pending_acceptance' || $statusLower === 'pending_acceptance') {
+        $planStatus = 'pending';
+    } elseif ($statusLower === 'active' || $statusLower === 'accepted') {
+        $planStatus = 'active';
     }
     
     $stmt = $db->prepare('

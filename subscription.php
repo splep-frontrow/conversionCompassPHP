@@ -62,15 +62,50 @@ $planStatus = SubscriptionHelper::getPlanStatus($shop);
 $pendingConfirmationUrl = null;
 $successMessage = null;
 
+// If there's a billing_charge_id, check the actual status from Shopify
+$actualChargeStatus = null;
+if (!empty($planStatus['billing_charge_id'])) {
+    $chargeStatusResponse = ShopifyClient::getChargeStatus($shop, $accessToken, $planStatus['billing_charge_id']);
+    if ($chargeStatusResponse['status'] === 200 && isset($chargeStatusResponse['body']['data']['appSubscription'])) {
+        $actualChargeStatus = $chargeStatusResponse['body']['data']['appSubscription'];
+        // Update plan_status based on actual Shopify status
+        $shopifyStatus = strtolower($actualChargeStatus['status'] ?? '');
+        if ($shopifyStatus === 'active' || $shopifyStatus === 'accepted') {
+            $planStatus['plan_status'] = 'active';
+        } elseif ($shopifyStatus === 'pending' || $shopifyStatus === 'pending_acceptance') {
+            $planStatus['plan_status'] = 'pending';
+        } elseif ($shopifyStatus === 'cancelled' || $shopifyStatus === 'declined' || $shopifyStatus === 'expired') {
+            $planStatus['plan_status'] = 'cancelled';
+        }
+        
+        // Also update plan_type from actual charge if available
+        if (isset($actualChargeStatus['lineItems'][0]['plan']['appRecurringPricingDetails']['interval'])) {
+            $interval = $actualChargeStatus['lineItems'][0]['plan']['appRecurringPricingDetails']['interval'];
+            if ($interval === 'ANNUAL') {
+                $planStatus['plan_type'] = 'annual';
+            } elseif ($interval === 'EVERY_30_DAYS') {
+                $planStatus['plan_type'] = 'monthly';
+            }
+        }
+    }
+}
+
 // Handle charge creation
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'create_charge') {
         $planType = $_POST['plan_type'] ?? '';
         $amount = $planType === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
         
-        error_log("subscription.php: Attempting to create charge for shop: {$shop}, plan_type: {$planType}, amount: {$amount}");
-        
-        $response = ShopifyClient::createRecurringCharge($shop, $accessToken, $amount, $planType);
+        // Prevent subscribing to the same plan type if already subscribed (even if pending)
+        if ($planStatus['plan_type'] === $planType && $planStatus['plan_status'] !== 'cancelled' && $planStatus['plan_status'] !== 'expired') {
+            $error = 'You already have a ' . ucfirst($planType) . ' subscription ' . 
+                     ($planStatus['plan_status'] === 'pending' ? 'pending confirmation' : 'active') . 
+                     '. Please wait for confirmation or cancel your current subscription first.';
+            error_log("subscription.php: Prevented duplicate subscription for shop: {$shop}, plan_type: {$planType}, current_status: {$planStatus['plan_status']}");
+        } else {
+            error_log("subscription.php: Attempting to create charge for shop: {$shop}, plan_type: {$planType}, amount: {$amount}");
+            
+            $response = ShopifyClient::createRecurringCharge($shop, $accessToken, $amount, $planType);
         
         // Log detailed error information
         error_log("subscription.php: Charge creation response status: " . $response['status']);
@@ -91,11 +126,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $confirmationUrl = $response['body']['recurring_application_charge']['confirmation_url'];
         }
         
-        if ($confirmationUrl) {
-            $pendingConfirmationUrl = $confirmationUrl;
-            $successMessage = 'Redirecting you to Shopify to confirm the subscription...';
-            error_log("subscription.php: Received confirmation URL, will redirect client-side: {$confirmationUrl}");
-        } else {
+            if ($confirmationUrl) {
+                // Extract charge ID from response and update database immediately
+                $chargeId = null;
+                if (isset($response['body']['recurring_application_charge']['id'])) {
+                    $chargeId = $response['body']['recurring_application_charge']['id'];
+                    // Extract numeric ID if it's a GID
+                    if (str_starts_with($chargeId, 'gid://')) {
+                        preg_match('/\/(\d+)$/', $chargeId, $matches);
+                        $chargeId = $matches[1] ?? $chargeId;
+                    }
+                    
+                    // Update database immediately with pending status
+                    if ($chargeId) {
+                        $updateStmt = $db->prepare('
+                            UPDATE shops 
+                            SET plan_type = :plan_type,
+                                plan_status = :plan_status,
+                                billing_charge_id = :charge_id
+                            WHERE shop_domain = :shop
+                        ');
+                        $updateStmt->execute([
+                            'shop' => $shop,
+                            'plan_type' => $planType,
+                            'plan_status' => 'pending',
+                            'charge_id' => (string)$chargeId,
+                        ]);
+                        error_log("subscription.php: Updated database with pending charge for shop: {$shop}, charge_id: {$chargeId}, plan_type: {$planType}");
+                        
+                        // Refresh planStatus for display
+                        $planStatus = SubscriptionHelper::getPlanStatus($shop);
+                        $planStatus['plan_status'] = 'pending';
+                    }
+                }
+                
+                $pendingConfirmationUrl = $confirmationUrl;
+                $successMessage = 'Redirecting you to Shopify to confirm the subscription...';
+                error_log("subscription.php: Received confirmation URL, will redirect client-side: {$confirmationUrl}");
+            } else {
             // Handle 403 Forbidden error specifically
             if ($response['status'] === 403) {
                 $error = 'Your app installation is missing billing permissions. Please reinstall the app to enable subscription purchases. <a href="/install.php?shop=' . urlencode($shop) . '">Click here to reinstall</a>.';
@@ -157,8 +225,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         // Validate new plan type
         if (!in_array($newPlanType, ['monthly', 'annual'])) {
             $error = 'Invalid plan type selected.';
-        } elseif ($planStatus['plan_type'] === $newPlanType) {
-            $error = 'You are already on the ' . ucfirst($newPlanType) . ' plan.';
+        } elseif ($planStatus['plan_type'] === $newPlanType && $planStatus['plan_status'] !== 'cancelled' && $planStatus['plan_status'] !== 'expired') {
+            $statusText = $planStatus['plan_status'] === 'pending' ? 'pending confirmation' : 'active';
+            $error = 'You already have a ' . ucfirst($newPlanType) . ' subscription that is ' . $statusText . '. Please wait for confirmation or cancel your current subscription first.';
         } elseif ($planStatus['plan_type'] === 'free') {
             // If on free plan, just create a new charge (fallback to create_charge flow)
             $amount = $newPlanType === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
@@ -576,6 +645,14 @@ $formAction = '?' . http_build_query($formActionParams);
             background: #ffebee;
             color: #c62828;
         }
+        .plan-badge.pending {
+            background: #fff4e5;
+            color: #e65100;
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
         .btn {
             display: inline-block;
             padding: 8px 16px;
@@ -661,9 +738,9 @@ $formAction = '?' . http_build_query($formActionParams);
     <div class="card">
         <h1>
             Subscription Management
-            <span class="plan-badge <?= htmlspecialchars($planStatus['plan_type'], ENT_QUOTES, 'UTF-8') ?> <?= $planStatus['plan_status'] === 'cancelled' ? 'cancelled' : '' ?>">
+            <span class="plan-badge <?= htmlspecialchars($planStatus['plan_type'], ENT_QUOTES, 'UTF-8') ?> <?= $planStatus['plan_status'] === 'cancelled' ? 'cancelled' : ($planStatus['plan_status'] === 'pending' ? 'pending' : '') ?>">
                 <?= strtoupper($planStatus['plan_type']) ?>
-                <?= $planStatus['plan_status'] === 'cancelled' ? ' (Cancelled)' : '' ?>
+                <?= $planStatus['plan_status'] === 'cancelled' ? ' (Cancelled)' : ($planStatus['plan_status'] === 'pending' ? ' (Pending Confirmation)' : '') ?>
             </span>
         </h1>
         <p>Store: <strong><?= htmlspecialchars($shopName, ENT_QUOTES, 'UTF-8') ?></strong></p>
@@ -679,7 +756,12 @@ $formAction = '?' . http_build_query($formActionParams);
             <strong>Current Plan:</strong> <?= ucfirst($planStatus['plan_type']) ?>
         </div>
         <div class="info-row">
-            <strong>Status:</strong> <?= ucfirst($planStatus['plan_status']) ?>
+            <strong>Status:</strong> 
+            <?php if ($planStatus['plan_status'] === 'pending'): ?>
+                <span style="color: #e65100;">Pending Confirmation</span> - Please complete the subscription confirmation in Shopify.
+            <?php else: ?>
+                <?= ucfirst($planStatus['plan_status']) ?>
+            <?php endif; ?>
         </div>
         <?php if ($planStatus['first_installed_at']): ?>
             <div class="info-row">
@@ -701,19 +783,45 @@ $formAction = '?' . http_build_query($formActionParams);
             <form method="POST" action="<?= htmlspecialchars($formAction, ENT_QUOTES, 'UTF-8') ?>">
                 <input type="hidden" name="action" value="create_charge">
                 <div class="pricing">
-                    <div class="pricing-option">
+                    <div class="pricing-option <?= $planStatus['plan_type'] === 'monthly' && $planStatus['plan_status'] !== 'cancelled' && $planStatus['plan_status'] !== 'expired' ? 'selected' : '' ?>">
                         <h3>Monthly</h3>
                         <div class="price">$<?= number_format(MONTHLY_PRICE, 2) ?>/mo</div>
-                        <button type="submit" name="plan_type" value="monthly" class="btn btn-primary">Subscribe Monthly</button>
+                        <?php if ($planStatus['plan_type'] === 'monthly' && $planStatus['plan_status'] !== 'cancelled' && $planStatus['plan_status'] !== 'expired'): ?>
+                            <p style="color: #e65100; font-weight: 500; margin: 8px 0;">
+                                <?= $planStatus['plan_status'] === 'pending' ? 'Pending Confirmation' : 'Currently Subscribed' ?>
+                            </p>
+                            <button type="button" disabled class="btn btn-primary">Already Subscribed</button>
+                        <?php else: ?>
+                            <button type="submit" name="plan_type" value="monthly" class="btn btn-primary">Subscribe Monthly</button>
+                        <?php endif; ?>
                     </div>
-                    <div class="pricing-option">
+                    <div class="pricing-option <?= $planStatus['plan_type'] === 'annual' && $planStatus['plan_status'] !== 'cancelled' && $planStatus['plan_status'] !== 'expired' ? 'selected' : '' ?>">
                         <h3>Annual</h3>
                         <div class="price">$<?= number_format(ANNUAL_PRICE, 2) ?>/yr</div>
                         <p style="font-size: 0.85rem; color: #6d7175;">Save <?= number_format((MONTHLY_PRICE * 12 - ANNUAL_PRICE) / (MONTHLY_PRICE * 12) * 100, 0) ?>%</p>
-                        <button type="submit" name="plan_type" value="annual" class="btn btn-primary">Subscribe Annual</button>
+                        <?php if ($planStatus['plan_type'] === 'annual' && $planStatus['plan_status'] !== 'cancelled' && $planStatus['plan_status'] !== 'expired'): ?>
+                            <p style="color: #e65100; font-weight: 500; margin: 8px 0;">
+                                <?= $planStatus['plan_status'] === 'pending' ? 'Pending Confirmation' : 'Currently Subscribed' ?>
+                            </p>
+                            <button type="button" disabled class="btn btn-primary">Already Subscribed</button>
+                        <?php else: ?>
+                            <button type="submit" name="plan_type" value="annual" class="btn btn-primary">Subscribe Annual</button>
+                        <?php endif; ?>
                     </div>
                 </div>
             </form>
+        </div>
+    <?php elseif ($planStatus['plan_type'] !== 'free' && $planStatus['plan_status'] === 'pending'): ?>
+        <div class="card">
+            <h2>Subscription Pending</h2>
+            <p>Your <?= ucfirst($planStatus['plan_type']) ?> subscription is pending confirmation.</p>
+            <p style="color: #6d7175;">Please complete the subscription confirmation in Shopify. Once confirmed, your subscription will be activated.</p>
+            
+            <?php if (!empty($pendingConfirmationUrl)): ?>
+                <p style="margin-top: 16px;">
+                    <a href="<?= htmlspecialchars($pendingConfirmationUrl, ENT_QUOTES, 'UTF-8') ?>" class="btn btn-primary" target="_blank">Complete Confirmation</a>
+                </p>
+            <?php endif; ?>
         </div>
     <?php elseif ($planStatus['plan_type'] !== 'free' && $planStatus['plan_status'] === 'active'): ?>
         <div class="card">
