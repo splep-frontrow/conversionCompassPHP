@@ -143,7 +143,7 @@ class ShopifyClient
     public static function createRecurringCharge(string $shop, string $accessToken, float $amount, string $planType): array
     {
         $name = $planType === 'annual' ? 'Annual Subscription' : 'Monthly Subscription';
-        $interval = $planType === 'annual' ? 'EVERY_12_MONTHS' : 'EVERY_30_DAYS';
+        $interval = $planType === 'annual' ? 'ANNUAL' : 'EVERY_30_DAYS';
         $returnUrl = 'https://' . parse_url(SHOPIFY_REDIRECT_URI, PHP_URL_HOST) . '/subscription.php?shop=' . urlencode($shop);
         
         // GraphQL mutation for creating app subscription
