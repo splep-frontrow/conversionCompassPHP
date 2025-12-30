@@ -154,6 +154,8 @@ if ($topic === 'recurring_application_charges/update' || $topic === 'recurring_a
     $statusLower = strtolower($status);
     if ($statusLower === 'cancelled' || $statusLower === 'declined' || $statusLower === 'expired') {
         $planStatus = 'cancelled';
+        // When cancelled/expired, set plan_type to free
+        $planType = 'free';
     } elseif ($statusLower === 'pending' || $statusLower === 'pending_acceptance' || $statusLower === 'pending_acceptance') {
         $planStatus = 'pending';
     } elseif ($statusLower === 'active' || $statusLower === 'accepted') {

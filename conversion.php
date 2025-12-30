@@ -81,31 +81,58 @@ $startDate = $_GET['start_date'] ?? null;
 $endDate = $_GET['end_date'] ?? null;
 $dateRange = $_GET['range'] ?? null;
 
+// For free plans, limit to last day only
+$isFreePlan = ($planStatus['plan_type'] === 'free' || empty($planStatus['plan_type']));
+
 // Process date range
 if ($dateRange) {
     $now = time();
-    switch ($dateRange) {
-        case '24h':
-            $startDate = date('Y-m-d H:i:s', $now - 86400);
-            $endDate = date('Y-m-d H:i:s', $now);
-            break;
-        case '7d':
-            $startDate = date('Y-m-d H:i:s', $now - (7 * 86400));
-            $endDate = date('Y-m-d H:i:s', $now);
-            break;
-        case '14d':
-            $startDate = date('Y-m-d H:i:s', $now - (14 * 86400));
-            $endDate = date('Y-m-d H:i:s', $now);
-            break;
-        case '30d':
-            $startDate = date('Y-m-d H:i:s', $now - (30 * 86400));
-            $endDate = date('Y-m-d H:i:s', $now);
-            break;
+    
+    // Free plans can only query last day (24h)
+    if ($isFreePlan) {
+        $startDate = date('Y-m-d H:i:s', $now - 86400);
+        $endDate = date('Y-m-d H:i:s', $now);
+        $dateRange = '24h'; // Force to 24h for free plans
+    } else {
+        switch ($dateRange) {
+            case '24h':
+                $startDate = date('Y-m-d H:i:s', $now - 86400);
+                $endDate = date('Y-m-d H:i:s', $now);
+                break;
+            case '7d':
+                $startDate = date('Y-m-d H:i:s', $now - (7 * 86400));
+                $endDate = date('Y-m-d H:i:s', $now);
+                break;
+            case '14d':
+                $startDate = date('Y-m-d H:i:s', $now - (14 * 86400));
+                $endDate = date('Y-m-d H:i:s', $now);
+                break;
+            case '30d':
+                $startDate = date('Y-m-d H:i:s', $now - (30 * 86400));
+                $endDate = date('Y-m-d H:i:s', $now);
+                break;
+        }
     }
 } elseif ($startDate && $endDate) {
     // Custom date range - ensure proper format
-    $startDate = date('Y-m-d H:i:s', strtotime($startDate));
-    $endDate = date('Y-m-d H:i:s', strtotime($endDate . ' 23:59:59'));
+    $startDateParsed = strtotime($startDate);
+    $endDateParsed = strtotime($endDate . ' 23:59:59');
+    
+    // For free plans, limit to last day only
+    if ($isFreePlan) {
+        $now = time();
+        $startDate = date('Y-m-d H:i:s', $now - 86400);
+        $endDate = date('Y-m-d H:i:s', $now);
+    } else {
+        $startDate = date('Y-m-d H:i:s', $startDateParsed);
+        $endDate = date('Y-m-d H:i:s', $endDateParsed);
+    }
+} elseif ($isFreePlan) {
+    // If no date range specified for free plan, default to last day
+    $now = time();
+    $startDate = date('Y-m-d H:i:s', $now - 86400);
+    $endDate = date('Y-m-d H:i:s', $now);
+    $dateRange = '24h';
 }
 
 // Fetch orders if date range is set

@@ -102,8 +102,11 @@ if (!empty($planStatus['billing_charge_id']) && !empty($accessToken)) {
             
             // Determine new plan type from actual charge if available
             $newPlanType = $originalPlanType; // Default to original database value
-            if (isset($actualChargeStatus['lineItems'][0]['plan']['appRecurringPricingDetails']['interval'])) {
-                $interval = $actualChargeStatus['lineItems'][0]['plan']['appRecurringPricingDetails']['interval'];
+            // If cancelled/expired, set to free
+            if ($newPlanStatus === 'cancelled' || $newPlanStatus === 'expired') {
+                $newPlanType = 'free';
+            } elseif (isset($actualChargeStatus['lineItems'][0]['plan']['pricingDetails']['interval'])) {
+                $interval = $actualChargeStatus['lineItems'][0]['plan']['pricingDetails']['interval'];
                 if ($interval === 'ANNUAL') {
                     $newPlanType = 'annual';
                 } elseif ($interval === 'EVERY_30_DAYS') {
@@ -278,11 +281,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $errorMessages = array_column($userErrors, 'message');
                 $error = 'Failed to cancel subscription: ' . implode('. ', $errorMessages);
             } else {
-                // Success
-                $updateStmt = $db->prepare('UPDATE shops SET plan_status = :status WHERE shop_domain = :shop');
+                // Success - set plan_type to free when cancelling
+                $updateStmt = $db->prepare('UPDATE shops SET plan_status = :status, plan_type = :plan_type WHERE shop_domain = :shop');
                 $updateStmt->execute([
                     'shop' => $shop,
                     'status' => 'cancelled',
+                    'plan_type' => 'free',
                 ]);
                 header('Location: /subscription.php?shop=' . urlencode($shop));
                 exit;
@@ -328,7 +332,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (isset($chargeStatusResponse['body']['errors'])) {
                 $error = 'GraphQL error: ' . json_encode($chargeStatusResponse['body']['errors']);
                 error_log("subscription.php: GraphQL errors in refresh status - shop: {$shop}, errors: " . json_encode($chargeStatusResponse['body']['errors']));
-            } else            if ($chargeStatusResponse['status'] === 200 && isset($chargeStatusResponse['body']['data']['node'])) {
+            } elseif ($chargeStatusResponse['status'] === 200 && isset($chargeStatusResponse['body']['data']['node'])) {
                 $actualChargeStatus = $chargeStatusResponse['body']['data']['node'];
                 $shopifyStatus = strtoupper($actualChargeStatus['status'] ?? '');
                 
@@ -344,7 +348,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 
                 // Determine new plan type
                 $newPlanType = $planStatus['plan_type'];
-                if (isset($actualChargeStatus['lineItems'][0]['plan']['pricingDetails']['interval'])) {
+                // If cancelled/expired, set to free
+                if ($newPlanStatus === 'cancelled' || $newPlanStatus === 'expired') {
+                    $newPlanType = 'free';
+                } elseif (isset($actualChargeStatus['lineItems'][0]['plan']['pricingDetails']['interval'])) {
                     $interval = $actualChargeStatus['lineItems'][0]['plan']['pricingDetails']['interval'];
                     if ($interval === 'ANNUAL') {
                         $newPlanType = 'annual';

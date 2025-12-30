@@ -31,6 +31,18 @@ class SubscriptionHelper
             ];
         }
 
+        // Normalize cancelled/expired plans to free plan_type
+        if (in_array($row['plan_status'], ['cancelled', 'expired']) || empty($row['plan_type']) || $row['plan_type'] === null) {
+            $row['plan_type'] = 'free';
+            // Update database to reflect this normalization
+            $db = get_db();
+            $updateStmt = $db->prepare('UPDATE shops SET plan_type = :plan_type WHERE shop_domain = :shop AND (plan_type IS NULL OR plan_type != :plan_type)');
+            $updateStmt->execute([
+                'shop' => $shop,
+                'plan_type' => 'free',
+            ]);
+        }
+
         return $row;
     }
 
