@@ -77,16 +77,35 @@ if ($topic === 'app/uninstalled') {
 
 // Handle both REST API webhooks (legacy) and GraphQL webhooks (new)
 if ($topic === 'recurring_application_charges/update' || $topic === 'recurring_application_charges/create' || $topic === 'app_subscriptions/update') {
+    // Log full payload structure for debugging
+    error_log("Webhook received - Topic: {$topic}, Payload keys: " . implode(', ', array_keys($payload)));
+    if (isset($payload['app_subscription'])) {
+        error_log("Webhook app_subscription keys: " . implode(', ', array_keys($payload['app_subscription'])));
+    }
+    if (isset($payload['recurring_application_charge'])) {
+        error_log("Webhook recurring_application_charge keys: " . implode(', ', array_keys($payload['recurring_application_charge'])));
+    }
+    
     // Handle REST API format (legacy)
     $charge = $payload['recurring_application_charge'] ?? null;
     
-    // Handle GraphQL format (new)
+    // Handle GraphQL format (new) - app_subscriptions/update webhook uses this structure
     if (!$charge) {
         $charge = $payload['app_subscription'] ?? null;
     }
     
+    // For app_subscriptions/update, the payload might be nested differently
+    // Check if the payload itself is the subscription object
+    if (!$charge && ($topic === 'app_subscriptions/update')) {
+        // Sometimes the payload IS the subscription object
+        if (isset($payload['id']) || isset($payload['status'])) {
+            $charge = $payload;
+            error_log("Webhook: Using payload as charge object directly");
+        }
+    }
+    
     if (!$charge) {
-        error_log("Webhook payload missing charge data. Topic: {$topic}, Payload keys: " . implode(', ', array_keys($payload)));
+        error_log("Webhook payload missing charge data. Topic: {$topic}, Payload structure: " . json_encode($payload, JSON_PRETTY_PRINT));
         http_response_code(400);
         echo "Invalid payload";
         exit;
@@ -104,7 +123,7 @@ if ($topic === 'recurring_application_charges/update' || $topic === 'recurring_a
     $status = $charge['status'] ?? '';
     
     if (!$chargeId) {
-        error_log("Webhook missing charge ID. Topic: {$topic}");
+        error_log("Webhook missing charge ID. Topic: {$topic}, Charge object keys: " . implode(', ', array_keys($charge)));
         http_response_code(400);
         echo "Missing charge ID";
         exit;

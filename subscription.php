@@ -320,7 +320,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         // Manually refresh status from Shopify API
         try {
             $chargeStatusResponse = ShopifyClient::getChargeStatus($shop, $accessToken, $planStatus['billing_charge_id']);
-            if ($chargeStatusResponse['status'] === 200 && isset($chargeStatusResponse['body']['data']['appSubscription'])) {
+            
+            // Log full response for debugging
+            error_log("subscription.php: Refresh status response - shop: {$shop}, status: {$chargeStatusResponse['status']}, body_keys: " . (isset($chargeStatusResponse['body']) ? implode(', ', array_keys($chargeStatusResponse['body'])) : 'no body'));
+            
+            // Check for GraphQL errors (GraphQL can return 200 with errors in body)
+            if (isset($chargeStatusResponse['body']['errors'])) {
+                $error = 'GraphQL error: ' . json_encode($chargeStatusResponse['body']['errors']);
+                error_log("subscription.php: GraphQL errors in refresh status - shop: {$shop}, errors: " . json_encode($chargeStatusResponse['body']['errors']));
+            } elseif ($chargeStatusResponse['status'] === 200 && isset($chargeStatusResponse['body']['data']['appSubscription'])) {
                 $actualChargeStatus = $chargeStatusResponse['body']['data']['appSubscription'];
                 $shopifyStatus = strtoupper($actualChargeStatus['status'] ?? '');
                 
@@ -357,8 +365,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 
                 $successMessage = 'Status refreshed successfully. Your subscription is now ' . ucfirst($newPlanStatus) . '.';
             } else {
+                // More detailed error logging
+                $errorDetails = 'Response status: ' . $chargeStatusResponse['status'];
+                if (isset($chargeStatusResponse['body']['errors'])) {
+                    $errorDetails .= ', Errors: ' . json_encode($chargeStatusResponse['body']['errors']);
+                }
+                if (isset($chargeStatusResponse['body']['data']) && !isset($chargeStatusResponse['body']['data']['appSubscription'])) {
+                    $errorDetails .= ', Data keys: ' . implode(', ', array_keys($chargeStatusResponse['body']['data'] ?? []));
+                }
+                if (isset($chargeStatusResponse['body']) && !isset($chargeStatusResponse['body']['data'])) {
+                    $errorDetails .= ', Body keys: ' . implode(', ', array_keys($chargeStatusResponse['body']));
+                }
+                
                 $error = 'Failed to refresh status from Shopify. Please try again.';
-                error_log("subscription.php: Failed to refresh status - shop: {$shop}, response_status: {$chargeStatusResponse['status']}");
+                error_log("subscription.php: Failed to refresh status - shop: {$shop}, {$errorDetails}");
             }
         } catch (Exception $e) {
             $error = 'Error refreshing status: ' . $e->getMessage();
