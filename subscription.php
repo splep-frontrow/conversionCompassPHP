@@ -66,6 +66,10 @@ if (!in_array($planStatus['plan_status'], ['active', 'cancelled', 'expired', 'pe
 $pendingConfirmationUrl = null;
 $successMessage = null;
 
+// Store original database values for comparison
+$originalPlanStatus = $planStatus['plan_status'];
+$originalPlanType = $planStatus['plan_type'];
+
 // If there's a billing_charge_id, check the actual status from Shopify (non-blocking)
 $actualChargeStatus = null;
 $confirmationUrlFromShopify = null;
@@ -77,24 +81,46 @@ if (!empty($planStatus['billing_charge_id']) && !empty($accessToken)) {
             // Get confirmation URL if available
             $confirmationUrlFromShopify = $actualChargeStatus['confirmationUrl'] ?? null;
             
-            // Update plan_status based on actual Shopify status
-            $shopifyStatus = strtolower($actualChargeStatus['status'] ?? '');
-            if ($shopifyStatus === 'active' || $shopifyStatus === 'accepted') {
-                $planStatus['plan_status'] = 'active';
-            } elseif ($shopifyStatus === 'pending' || $shopifyStatus === 'pending_acceptance') {
-                $planStatus['plan_status'] = 'pending';
-            } elseif ($shopifyStatus === 'cancelled' || $shopifyStatus === 'declined' || $shopifyStatus === 'expired') {
-                $planStatus['plan_status'] = 'cancelled';
+            // Determine new status from Shopify
+            // Shopify returns status in uppercase (e.g., 'ACTIVE', 'PENDING', 'CANCELLED')
+            $shopifyStatus = strtoupper($actualChargeStatus['status'] ?? '');
+            $shopifyStatusLower = strtolower($shopifyStatus);
+            $newPlanStatus = $originalPlanStatus; // Default to original database value
+            
+            error_log("subscription.php: Shopify API status check - shop: {$shop}, shopify_status: {$shopifyStatus}, original_db_status: {$originalPlanStatus}");
+            
+            if ($shopifyStatus === 'ACTIVE' || $shopifyStatus === 'ACCEPTED') {
+                $newPlanStatus = 'active';
+            } elseif ($shopifyStatus === 'PENDING' || $shopifyStatus === 'PENDING_ACCEPTANCE') {
+                $newPlanStatus = 'pending';
+            } elseif ($shopifyStatus === 'CANCELLED' || $shopifyStatus === 'DECLINED' || $shopifyStatus === 'EXPIRED') {
+                $newPlanStatus = 'cancelled';
             }
             
-            // Also update plan_type from actual charge if available
+            // Determine new plan type from actual charge if available
+            $newPlanType = $originalPlanType; // Default to original database value
             if (isset($actualChargeStatus['lineItems'][0]['plan']['appRecurringPricingDetails']['interval'])) {
                 $interval = $actualChargeStatus['lineItems'][0]['plan']['appRecurringPricingDetails']['interval'];
                 if ($interval === 'ANNUAL') {
-                    $planStatus['plan_type'] = 'annual';
+                    $newPlanType = 'annual';
                 } elseif ($interval === 'EVERY_30_DAYS') {
-                    $planStatus['plan_type'] = 'monthly';
+                    $newPlanType = 'monthly';
                 }
+            }
+            
+            // Update in-memory status for display
+            $planStatus['plan_status'] = $newPlanStatus;
+            $planStatus['plan_type'] = $newPlanType;
+            
+            // If status changed from database, update database to keep it in sync
+            if ($newPlanStatus !== $originalPlanStatus || $newPlanType !== $originalPlanType) {
+                $updateStmt = $db->prepare('UPDATE shops SET plan_status = :plan_status, plan_type = :plan_type WHERE shop_domain = :shop');
+                $updateStmt->execute([
+                    'shop' => $shop,
+                    'plan_status' => $newPlanStatus,
+                    'plan_type' => $newPlanType,
+                ]);
+                error_log("subscription.php: Synced database status from Shopify API - shop: {$shop}, old_status: {$originalPlanStatus}, new_status: {$newPlanStatus}, old_plan: {$originalPlanType}, new_plan: {$newPlanType}");
             }
         }
     } catch (Exception $e) {
