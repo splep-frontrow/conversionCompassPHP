@@ -285,16 +285,17 @@ query getAppSubscription(\$id: ID!) {
       name
       status
       currentPeriodEnd
-      confirmationUrl
       lineItems {
         id
         plan {
-          ... on AppRecurringPricing {
-            price {
-              amount
-              currencyCode
+          pricingDetails {
+            ... on AppRecurringPricing {
+              price {
+                amount
+                currencyCode
+              }
+              interval
             }
-            interval
           }
         }
       }

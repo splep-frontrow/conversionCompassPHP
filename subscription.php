@@ -78,8 +78,8 @@ if (!empty($planStatus['billing_charge_id']) && !empty($accessToken)) {
         $chargeStatusResponse = ShopifyClient::getChargeStatus($shop, $accessToken, $planStatus['billing_charge_id']);
         if ($chargeStatusResponse['status'] === 200 && isset($chargeStatusResponse['body']['data']['node'])) {
             $actualChargeStatus = $chargeStatusResponse['body']['data']['node'];
-            // Get confirmation URL if available
-            $confirmationUrlFromShopify = $actualChargeStatus['confirmationUrl'] ?? null;
+            // Note: confirmationUrl is not available on AppSubscription type via GraphQL
+            $confirmationUrlFromShopify = null;
             
             // Determine new status from Shopify
             // Shopify returns status in uppercase (e.g., 'ACTIVE', 'PENDING', 'CANCELLED')
@@ -344,8 +344,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 
                 // Determine new plan type
                 $newPlanType = $planStatus['plan_type'];
-                if (isset($actualChargeStatus['lineItems'][0]['plan']['appRecurringPricingDetails']['interval'])) {
-                    $interval = $actualChargeStatus['lineItems'][0]['plan']['appRecurringPricingDetails']['interval'];
+                if (isset($actualChargeStatus['lineItems'][0]['plan']['pricingDetails']['interval'])) {
+                    $interval = $actualChargeStatus['lineItems'][0]['plan']['pricingDetails']['interval'];
                     if ($interval === 'ANNUAL') {
                         $newPlanType = 'annual';
                     } elseif ($interval === 'EVERY_30_DAYS') {

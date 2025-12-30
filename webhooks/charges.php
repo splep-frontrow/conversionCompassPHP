@@ -112,7 +112,8 @@ if ($topic === 'recurring_application_charges/update' || $topic === 'recurring_a
     }
     
     // Extract charge ID (handle both REST numeric ID and GraphQL GID format)
-    $chargeId = $charge['id'] ?? null;
+    // For app_subscriptions/update webhook, the ID is in admin_graphql_api_id field
+    $chargeId = $charge['id'] ?? $charge['admin_graphql_api_id'] ?? null;
     if ($chargeId && str_starts_with($chargeId, 'gid://')) {
         // Extract numeric ID from GID format: gid://shopify/AppSubscription/123456
         preg_match('/\/(\d+)$/', $chargeId, $matches);
@@ -131,12 +132,18 @@ if ($topic === 'recurring_application_charges/update' || $topic === 'recurring_a
         exit;
     }
     
-    // Determine plan type from charge name or amount
+    // Determine plan type from charge name, amount, or interval
     $planType = 'monthly';
     $chargeName = $charge['name'] ?? '';
-    $chargeAmount = $charge['price'] ?? ($charge['lineItems'][0]['plan']['appRecurringPricingDetails']['price']['amount'] ?? null);
+    $chargeAmount = $charge['price'] ?? ($charge['lineItems'][0]['plan']['pricingDetails']['price']['amount'] ?? null);
+    $interval = $charge['interval'] ?? ($charge['lineItems'][0]['plan']['pricingDetails']['interval'] ?? null);
     
-    if (stripos($chargeName, 'annual') !== false) {
+    // Check interval first (most reliable)
+    if ($interval === 'ANNUAL' || $interval === 'EVERY_12_MONTHS') {
+        $planType = 'annual';
+    } elseif ($interval === 'EVERY_30_DAYS' || $interval === 'MONTHLY') {
+        $planType = 'monthly';
+    } elseif (stripos($chargeName, 'annual') !== false) {
         $planType = 'annual';
     } elseif ($chargeAmount && $chargeAmount >= ANNUAL_PRICE) {
         $planType = 'annual';
