@@ -276,23 +276,26 @@ GRAPHQL;
             $gid = "gid://shopify/AppSubscription/{$chargeId}";
         }
         
+        // Use node query to fetch AppSubscription by GID
         $query = <<<GRAPHQL
 query getAppSubscription(\$id: ID!) {
-  appSubscription(id: \$id) {
-    id
-    name
-    status
-    currentPeriodEnd
-    confirmationUrl
-    lineItems {
+  node(id: \$id) {
+    ... on AppSubscription {
       id
-      plan {
-        ... on AppRecurringPricing {
-          price {
-            amount
-            currencyCode
+      name
+      status
+      currentPeriodEnd
+      confirmationUrl
+      lineItems {
+        id
+        plan {
+          ... on AppRecurringPricing {
+            price {
+              amount
+              currencyCode
+            }
+            interval
           }
-          interval
         }
       }
     }

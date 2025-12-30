@@ -76,8 +76,8 @@ $confirmationUrlFromShopify = null;
 if (!empty($planStatus['billing_charge_id']) && !empty($accessToken)) {
     try {
         $chargeStatusResponse = ShopifyClient::getChargeStatus($shop, $accessToken, $planStatus['billing_charge_id']);
-        if ($chargeStatusResponse['status'] === 200 && isset($chargeStatusResponse['body']['data']['appSubscription'])) {
-            $actualChargeStatus = $chargeStatusResponse['body']['data']['appSubscription'];
+        if ($chargeStatusResponse['status'] === 200 && isset($chargeStatusResponse['body']['data']['node'])) {
+            $actualChargeStatus = $chargeStatusResponse['body']['data']['node'];
             // Get confirmation URL if available
             $confirmationUrlFromShopify = $actualChargeStatus['confirmationUrl'] ?? null;
             
@@ -328,8 +328,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (isset($chargeStatusResponse['body']['errors'])) {
                 $error = 'GraphQL error: ' . json_encode($chargeStatusResponse['body']['errors']);
                 error_log("subscription.php: GraphQL errors in refresh status - shop: {$shop}, errors: " . json_encode($chargeStatusResponse['body']['errors']));
-            } elseif ($chargeStatusResponse['status'] === 200 && isset($chargeStatusResponse['body']['data']['appSubscription'])) {
-                $actualChargeStatus = $chargeStatusResponse['body']['data']['appSubscription'];
+            } else            if ($chargeStatusResponse['status'] === 200 && isset($chargeStatusResponse['body']['data']['node'])) {
+                $actualChargeStatus = $chargeStatusResponse['body']['data']['node'];
                 $shopifyStatus = strtoupper($actualChargeStatus['status'] ?? '');
                 
                 // Determine new status
@@ -370,7 +370,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 if (isset($chargeStatusResponse['body']['errors'])) {
                     $errorDetails .= ', Errors: ' . json_encode($chargeStatusResponse['body']['errors']);
                 }
-                if (isset($chargeStatusResponse['body']['data']) && !isset($chargeStatusResponse['body']['data']['appSubscription'])) {
+                if (isset($chargeStatusResponse['body']['data']) && !isset($chargeStatusResponse['body']['data']['node'])) {
                     $errorDetails .= ', Data keys: ' . implode(', ', array_keys($chargeStatusResponse['body']['data'] ?? []));
                 }
                 if (isset($chargeStatusResponse['body']) && !isset($chargeStatusResponse['body']['data'])) {

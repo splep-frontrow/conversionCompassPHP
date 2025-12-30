@@ -124,6 +124,8 @@ if ($topic === 'recurring_application_charges/update' || $topic === 'recurring_a
     
     if (!$chargeId) {
         error_log("Webhook missing charge ID. Topic: {$topic}, Charge object keys: " . implode(', ', array_keys($charge)));
+        error_log("Webhook full charge object: " . json_encode($charge, JSON_PRETTY_PRINT));
+        error_log("Webhook full payload: " . json_encode($payload, JSON_PRETTY_PRINT));
         http_response_code(400);
         echo "Missing charge ID";
         exit;
