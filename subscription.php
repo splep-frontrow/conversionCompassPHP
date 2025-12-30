@@ -87,7 +87,7 @@ if (!empty($planStatus['billing_charge_id']) && !empty($accessToken)) {
             $shopifyStatusLower = strtolower($shopifyStatus);
             $newPlanStatus = $originalPlanStatus; // Default to original database value
             
-            error_log("subscription.php: Shopify API status check - shop: {$shop}, shopify_status: {$shopifyStatus}, original_db_status: {$originalPlanStatus}");
+            error_log("subscription.php: Shopify API status check - shop: {$shop}, shopify_status: {$shopifyStatus}, original_db_status: {$originalPlanStatus}, full_response: " . json_encode($actualChargeStatus));
             
             if ($shopifyStatus === 'ACTIVE' || $shopifyStatus === 'ACCEPTED') {
                 $newPlanStatus = 'active';
@@ -95,6 +95,9 @@ if (!empty($planStatus['billing_charge_id']) && !empty($accessToken)) {
                 $newPlanStatus = 'pending';
             } elseif ($shopifyStatus === 'CANCELLED' || $shopifyStatus === 'DECLINED' || $shopifyStatus === 'EXPIRED') {
                 $newPlanStatus = 'cancelled';
+            } else {
+                // Log unexpected status values
+                error_log("subscription.php: Unexpected Shopify status value - shop: {$shop}, status: {$shopifyStatus}, raw_status: " . ($actualChargeStatus['status'] ?? 'null'));
             }
             
             // Determine new plan type from actual charge if available
@@ -313,6 +316,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         
         header('Location: /subscription.php?shop=' . urlencode($shop));
         exit;
+    } elseif ($_POST['action'] === 'refresh_status' && !empty($planStatus['billing_charge_id'])) {
+        // Manually refresh status from Shopify API
+        try {
+            $chargeStatusResponse = ShopifyClient::getChargeStatus($shop, $accessToken, $planStatus['billing_charge_id']);
+            if ($chargeStatusResponse['status'] === 200 && isset($chargeStatusResponse['body']['data']['appSubscription'])) {
+                $actualChargeStatus = $chargeStatusResponse['body']['data']['appSubscription'];
+                $shopifyStatus = strtoupper($actualChargeStatus['status'] ?? '');
+                
+                // Determine new status
+                $newPlanStatus = $planStatus['plan_status'];
+                if ($shopifyStatus === 'ACTIVE' || $shopifyStatus === 'ACCEPTED') {
+                    $newPlanStatus = 'active';
+                } elseif ($shopifyStatus === 'PENDING' || $shopifyStatus === 'PENDING_ACCEPTANCE') {
+                    $newPlanStatus = 'pending';
+                } elseif ($shopifyStatus === 'CANCELLED' || $shopifyStatus === 'DECLINED' || $shopifyStatus === 'EXPIRED') {
+                    $newPlanStatus = 'cancelled';
+                }
+                
+                // Determine new plan type
+                $newPlanType = $planStatus['plan_type'];
+                if (isset($actualChargeStatus['lineItems'][0]['plan']['appRecurringPricingDetails']['interval'])) {
+                    $interval = $actualChargeStatus['lineItems'][0]['plan']['appRecurringPricingDetails']['interval'];
+                    if ($interval === 'ANNUAL') {
+                        $newPlanType = 'annual';
+                    } elseif ($interval === 'EVERY_30_DAYS') {
+                        $newPlanType = 'monthly';
+                    }
+                }
+                
+                // Update database
+                $updateStmt = $db->prepare('UPDATE shops SET plan_status = :plan_status, plan_type = :plan_type WHERE shop_domain = :shop');
+                $updateStmt->execute([
+                    'shop' => $shop,
+                    'plan_status' => $newPlanStatus,
+                    'plan_type' => $newPlanType,
+                ]);
+                
+                error_log("subscription.php: Manual status refresh - shop: {$shop}, shopify_status: {$shopifyStatus}, updated_db_status: {$newPlanStatus}, updated_db_plan: {$newPlanType}");
+                
+                $successMessage = 'Status refreshed successfully. Your subscription is now ' . ucfirst($newPlanStatus) . '.';
+            } else {
+                $error = 'Failed to refresh status from Shopify. Please try again.';
+                error_log("subscription.php: Failed to refresh status - shop: {$shop}, response_status: {$chargeStatusResponse['status']}");
+            }
+        } catch (Exception $e) {
+            $error = 'Error refreshing status: ' . $e->getMessage();
+            error_log("subscription.php: Exception refreshing status for shop: {$shop}, error: " . $e->getMessage());
+        }
+        
+        // Reload planStatus after refresh
+        $planStatus = SubscriptionHelper::getPlanStatus($shop);
+        if (!in_array($planStatus['plan_status'], ['active', 'cancelled', 'expired', 'pending'])) {
+            $planStatus['plan_status'] = 'active';
+        }
+        $originalPlanStatus = $planStatus['plan_status'];
+        $originalPlanType = $planStatus['plan_type'];
     } elseif ($_POST['action'] === 'change_plan') {
         $newPlanType = $_POST['plan_type'] ?? '';
         
@@ -930,6 +989,17 @@ $formAction = '?' . http_build_query($formActionParams);
                         <li>Click on it and look for any pending subscription notifications</li>
                         <li>Or check your email for a subscription confirmation link from Shopify</li>
                     </ol>
+                </div>
+            <?php endif; ?>
+            
+            <?php if (!empty($planStatus['billing_charge_id'])): ?>
+                <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e1e3e5;">
+                    <h3 style="margin-top: 0; font-size: 1rem;">Refresh Subscription Status</h3>
+                    <p style="color: #6d7175; font-size: 0.9rem;">If you've already confirmed your subscription in Shopify, click below to refresh the status.</p>
+                    <form method="POST" action="<?= htmlspecialchars($formAction, ENT_QUOTES, 'UTF-8') ?>" style="margin-top: 16px;">
+                        <input type="hidden" name="action" value="refresh_status">
+                        <button type="submit" class="btn btn-primary">Refresh Status</button>
+                    </form>
                 </div>
             <?php endif; ?>
             
