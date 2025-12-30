@@ -138,13 +138,54 @@ class ShopifyClient
     }
 
     /**
+     * Check if a shop is a development store
+     */
+    public static function isDevelopmentStore(string $shop, string $accessToken): bool
+    {
+        try {
+            $response = self::apiRequest($shop, $accessToken, '/admin/api/2024-10/shop.json', 'GET');
+            if ($response['status'] === 200 && isset($response['body']['shop'])) {
+                $shopData = $response['body']['shop'];
+                $planName = strtolower($shopData['plan_name'] ?? '');
+                $planDisplayName = strtolower($shopData['plan_display_name'] ?? '');
+                
+                // Development stores typically have plan names containing "partner", "test", or "development"
+                $isDevStore = (
+                    strpos($planName, 'partner') !== false ||
+                    strpos($planName, 'test') !== false ||
+                    strpos($planName, 'development') !== false ||
+                    strpos($planDisplayName, 'partner') !== false ||
+                    strpos($planDisplayName, 'test') !== false ||
+                    strpos($planDisplayName, 'development') !== false
+                );
+                
+                error_log("ShopifyClient::isDevelopmentStore - shop: {$shop}, plan_name: {$planName}, plan_display_name: {$planDisplayName}, is_dev: " . ($isDevStore ? 'yes' : 'no'));
+                return $isDevStore;
+            }
+        } catch (Exception $e) {
+            error_log("ShopifyClient::isDevelopmentStore - Error checking shop type for {$shop}: " . $e->getMessage());
+        } catch (Error $e) {
+            error_log("ShopifyClient::isDevelopmentStore - Fatal error checking shop type for {$shop}: " . $e->getMessage());
+        }
+        
+        // Default to false (production store) if we can't determine
+        return false;
+    }
+
+    /**
      * Create a recurring application charge using GraphQL (required for public apps)
      */
-    public static function createRecurringCharge(string $shop, string $accessToken, float $amount, string $planType): array
+    public static function createRecurringCharge(string $shop, string $accessToken, float $amount, string $planType, ?bool $testMode = null): array
     {
         $name = $planType === 'annual' ? 'Annual Subscription' : 'Monthly Subscription';
         $interval = $planType === 'annual' ? 'ANNUAL' : 'EVERY_30_DAYS';
         $returnUrl = 'https://' . parse_url(SHOPIFY_REDIRECT_URI, PHP_URL_HOST) . '/subscription.php?shop=' . urlencode($shop);
+        
+        // Auto-detect test mode if not explicitly set
+        if ($testMode === null) {
+            $testMode = self::isDevelopmentStore($shop, $accessToken);
+            error_log("ShopifyClient::createRecurringCharge - Auto-detected test mode: " . ($testMode ? 'true (dev store)' : 'false (production store)') . " for shop: {$shop}");
+        }
         
         // GraphQL mutation for creating app subscription
         $mutation = <<<GRAPHQL
@@ -186,7 +227,7 @@ GRAPHQL;
                 ]
             ],
             'returnUrl' => $returnUrl,
-            'test' => false // Set to true for development stores
+            'test' => $testMode
         ];
 
         $response = self::graphqlQuery($shop, $accessToken, $mutation, $variables);
