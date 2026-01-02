@@ -70,6 +70,25 @@ $successMessage = null;
 $originalPlanStatus = $planStatus['plan_status'];
 $originalPlanType = $planStatus['plan_type'];
 
+// If there's a pending plan change (status is pending but we have a previous plan), 
+// show the previous plan as the current active plan for display purposes
+// This ensures users see their active subscription, not the pending one
+$displayPlanStatus = $planStatus;
+if ($planStatus['plan_status'] === 'pending' && !empty($planStatus['previous_plan_type']) && !empty($planStatus['previous_billing_charge_id'])) {
+    // There's a pending plan change - show the previous active plan as current
+    $displayPlanStatus = [
+        'plan_type' => $planStatus['previous_plan_type'],
+        'plan_status' => 'active',
+        'billing_charge_id' => $planStatus['previous_billing_charge_id'],
+        'previous_plan_type' => $planStatus['plan_type'], // The pending new plan
+        'previous_billing_charge_id' => $planStatus['billing_charge_id'], // The pending new charge ID
+        'admin_granted_free' => $planStatus['admin_granted_free'] ?? false,
+        'first_installed_at' => $planStatus['first_installed_at'] ?? null,
+        'last_reinstalled_at' => $planStatus['last_reinstalled_at'] ?? null,
+        'last_used_at' => $planStatus['last_used_at'] ?? null,
+    ];
+}
+
 // If there's a billing_charge_id, check the actual status from Shopify (non-blocking)
 $actualChargeStatus = null;
 $confirmationUrlFromShopify = null;
@@ -924,10 +943,15 @@ $formAction = '?' . http_build_query($formActionParams);
     <div class="card">
         <h1>
             Subscription Management
-            <span class="plan-badge <?= htmlspecialchars($planStatus['plan_type'], ENT_QUOTES, 'UTF-8') ?> <?= $planStatus['plan_status'] === 'cancelled' ? 'cancelled' : ($planStatus['plan_status'] === 'pending' ? 'pending' : '') ?>">
-                <?= strtoupper($planStatus['plan_type']) ?>
-                <?= $planStatus['plan_status'] === 'cancelled' ? ' (Cancelled)' : ($planStatus['plan_status'] === 'pending' ? ' (Pending Confirmation)' : '') ?>
+            <span class="plan-badge <?= htmlspecialchars($displayPlanStatus['plan_type'], ENT_QUOTES, 'UTF-8') ?> <?= $displayPlanStatus['plan_status'] === 'cancelled' ? 'cancelled' : '' ?>">
+                <?= strtoupper($displayPlanStatus['plan_type']) ?>
+                <?= $displayPlanStatus['plan_status'] === 'cancelled' ? ' (Cancelled)' : '' ?>
             </span>
+            <?php if ($planStatus['plan_status'] === 'pending' && !empty($planStatus['previous_plan_type'])): ?>
+                <span class="plan-badge pending" style="margin-left: 8px;">
+                    → <?= strtoupper($planStatus['plan_type']) ?> (Pending)
+                </span>
+            <?php endif; ?>
         </h1>
         <p>Store: <strong><?= htmlspecialchars($shopName, ENT_QUOTES, 'UTF-8') ?></strong></p>
         
@@ -939,14 +963,19 @@ $formAction = '?' . http_build_query($formActionParams);
         <?php endif; ?>
 
         <div class="info-row">
-            <strong>Current Plan:</strong> <?= ucfirst($planStatus['plan_type']) ?>
+            <strong>Current Plan:</strong> <?= ucfirst($displayPlanStatus['plan_type']) ?>
+            <?php if ($planStatus['plan_status'] === 'pending' && !empty($planStatus['previous_plan_type'])): ?>
+                <span style="color: #e65100; margin-left: 8px;">→ Changing to <?= ucfirst($planStatus['plan_type']) ?> (Pending Confirmation)</span>
+            <?php endif; ?>
         </div>
         <div class="info-row">
             <strong>Status:</strong> 
-            <?php if ($planStatus['plan_status'] === 'pending'): ?>
+            <?php if ($planStatus['plan_status'] === 'pending' && !empty($planStatus['previous_plan_type'])): ?>
+                <span style="color: #008060;">Active</span> - Plan change to <?= ucfirst($planStatus['plan_type']) ?> is pending confirmation. Your current <?= ucfirst($displayPlanStatus['plan_type']) ?> plan remains active until confirmed.
+            <?php elseif ($planStatus['plan_status'] === 'pending'): ?>
                 <span style="color: #e65100;">Pending Confirmation</span> - Please complete the subscription confirmation in Shopify.
             <?php else: ?>
-                <?= ucfirst($planStatus['plan_status']) ?>
+                <?= ucfirst($displayPlanStatus['plan_status']) ?>
             <?php endif; ?>
         </div>
         <?php if ($planStatus['first_installed_at']): ?>
@@ -961,7 +990,7 @@ $formAction = '?' . http_build_query($formActionParams);
         <?php endif; ?>
     </div>
 
-    <?php if ($planStatus['plan_type'] === 'free' && $planStatus['plan_status'] === 'active'): ?>
+    <?php if ($displayPlanStatus['plan_type'] === 'free' && $displayPlanStatus['plan_status'] === 'active'): ?>
         <div class="card">
             <h2>Upgrade Your Plan</h2>
             <p>Choose a subscription plan to unlock premium features:</p>
@@ -997,7 +1026,7 @@ $formAction = '?' . http_build_query($formActionParams);
                 </div>
             </form>
         </div>
-    <?php elseif ($planStatus['plan_type'] !== 'free' && $planStatus['plan_status'] === 'pending'): ?>
+    <?php elseif ($planStatus['plan_status'] === 'pending'): ?>
         <div class="card">
             <h2>Subscription Pending Confirmation</h2>
             <p>Your <?= ucfirst($planStatus['plan_type']) ?> subscription is pending confirmation.</p>
@@ -1046,55 +1075,67 @@ $formAction = '?' . http_build_query($formActionParams);
                 <p style="color: #6d7175; font-size: 0.85rem; margin-top: 8px;">Note: Pending subscriptions cannot be canceled via Shopify's API. The pending subscription will automatically expire if not confirmed. This action clears it from our system so you can choose a different plan.</p>
             </div>
         </div>
-    <?php elseif ($planStatus['plan_type'] !== 'free' && $planStatus['plan_status'] === 'active'): ?>
+    <?php elseif ($displayPlanStatus['plan_type'] !== 'free' && $displayPlanStatus['plan_status'] === 'active'): ?>
         <div class="card">
             <h2>Manage Subscription</h2>
-            <p>Your <?= ucfirst($planStatus['plan_type']) ?> subscription is active.</p>
+            <p>Your <?= ucfirst($displayPlanStatus['plan_type']) ?> subscription is active.</p>
+            <?php if ($planStatus['plan_status'] === 'pending' && !empty($planStatus['previous_plan_type'])): ?>
+                <div style="background: #fff4e5; border-left: 3px solid #f57c00; padding: 16px; margin: 16px 0; border-radius: 4px;">
+                    <p style="margin: 0; font-weight: 500; color: #e65100;">⚠️ Plan Change Pending</p>
+                    <p style="margin: 8px 0 0 0; color: #6d7175;">You have a pending plan change to <?= ucfirst($planStatus['plan_type']) ?>. Your current <?= ucfirst($displayPlanStatus['plan_type']) ?> subscription will remain active until the new plan is confirmed.</p>
+                </div>
+            <?php endif; ?>
             
             <?php
-            $currentPrice = $planStatus['plan_type'] === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
-            $otherPlanType = $planStatus['plan_type'] === 'annual' ? 'monthly' : 'annual';
-            $otherPrice = $otherPlanType === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
-            $isUpgrade = $planStatus['plan_type'] === 'monthly' && $otherPlanType === 'annual';
-            $savingsPercent = $isUpgrade ? number_format((MONTHLY_PRICE * 12 - ANNUAL_PRICE) / (MONTHLY_PRICE * 12) * 100, 0) : 0;
-            ?>
-            
-            <div style="margin: 24px 0; padding: 16px; background: #f6f6f7; border-radius: 8px;">
-                <h3 style="margin-top: 0;">Change Plan</h3>
-                <p>Switch to <?= ucfirst($otherPlanType) ?> billing:</p>
+            // If there's a pending plan change, don't show the change plan option
+            if ($planStatus['plan_status'] !== 'pending' || empty($planStatus['previous_plan_type'])) {
+                $currentPrice = $displayPlanStatus['plan_type'] === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
+                $otherPlanType = $displayPlanStatus['plan_type'] === 'annual' ? 'monthly' : 'annual';
+                $otherPrice = $otherPlanType === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
+                $isUpgrade = $displayPlanStatus['plan_type'] === 'monthly' && $otherPlanType === 'annual';
+                $savingsPercent = $isUpgrade ? number_format((MONTHLY_PRICE * 12 - ANNUAL_PRICE) / (MONTHLY_PRICE * 12) * 100, 0) : 0;
+                ?>
                 
-                <div style="display: flex; align-items: center; gap: 16px; margin: 16px 0;">
-                    <div style="flex: 1;">
-                        <strong><?= ucfirst($planStatus['plan_type']) ?> Plan</strong><br>
-                        <span style="color: #6d7175;">$<?= number_format($currentPrice, 2) ?><?= $planStatus['plan_type'] === 'annual' ? '/yr' : '/mo' ?></span>
+                <div style="margin: 24px 0; padding: 16px; background: #f6f6f7; border-radius: 8px;">
+                    <h3 style="margin-top: 0;">Change Plan</h3>
+                    <p>Switch to <?= ucfirst($otherPlanType) ?> billing:</p>
+                    
+                    <div style="display: flex; align-items: center; gap: 16px; margin: 16px 0;">
+                        <div style="flex: 1;">
+                            <strong><?= ucfirst($displayPlanStatus['plan_type']) ?> Plan</strong><br>
+                            <span style="color: #6d7175;">$<?= number_format($currentPrice, 2) ?><?= $displayPlanStatus['plan_type'] === 'annual' ? '/yr' : '/mo' ?></span>
+                        </div>
+                        <div style="font-size: 1.5rem; color: #6d7175;">→</div>
+                        <div style="flex: 1;">
+                            <strong><?= ucfirst($otherPlanType) ?> Plan</strong><br>
+                            <span style="color: #008060; font-weight: 600;">$<?= number_format($otherPrice, 2) ?><?= $otherPlanType === 'annual' ? '/yr' : '/mo' ?></span>
+                            <?php if ($isUpgrade): ?>
+                                <br><span style="color: #008060; font-size: 0.9rem;">Save <?= $savingsPercent ?>%</span>
+                            <?php endif; ?>
+                        </div>
                     </div>
-                    <div style="font-size: 1.5rem; color: #6d7175;">→</div>
-                    <div style="flex: 1;">
-                        <strong><?= ucfirst($otherPlanType) ?> Plan</strong><br>
-                        <span style="color: #008060; font-weight: 600;">$<?= number_format($otherPrice, 2) ?><?= $otherPlanType === 'annual' ? '/yr' : '/mo' ?></span>
-                        <?php if ($isUpgrade): ?>
-                            <br><span style="color: #008060; font-size: 0.9rem;">Save <?= $savingsPercent ?>%</span>
-                        <?php endif; ?>
-                    </div>
+                    
+                    <form method="POST" action="<?= htmlspecialchars($formAction, ENT_QUOTES, 'UTF-8') ?>" onsubmit="return confirm('Are you sure you want to change your plan? Your current subscription will remain active until the new plan is confirmed.');" style="margin-top: 16px;">
+                        <input type="hidden" name="action" value="change_plan">
+                        <input type="hidden" name="plan_type" value="<?= htmlspecialchars($otherPlanType, ENT_QUOTES, 'UTF-8') ?>">
+                        <button type="submit" class="btn btn-primary">Switch to <?= ucfirst($otherPlanType) ?> Plan</button>
+                    </form>
                 </div>
-                
-                <form method="POST" action="<?= htmlspecialchars($formAction, ENT_QUOTES, 'UTF-8') ?>" onsubmit="return confirm('Are you sure you want to change your plan? Your current subscription will be cancelled and you will need to confirm the new subscription.');" style="margin-top: 16px;">
-                    <input type="hidden" name="action" value="change_plan">
-                    <input type="hidden" name="plan_type" value="<?= htmlspecialchars($otherPlanType, ENT_QUOTES, 'UTF-8') ?>">
-                    <button type="submit" class="btn btn-primary">Switch to <?= ucfirst($otherPlanType) ?> Plan</button>
-                </form>
-            </div>
+            <?php } ?>
             
             <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e1e3e5;">
                 <h3 style="margin-top: 0;">Cancel Subscription</h3>
                 <p style="color: #6d7175; font-size: 0.9rem;">Cancel your subscription to stop future charges. You can resubscribe at any time.</p>
+                <?php if ($planStatus['plan_status'] === 'pending' && !empty($planStatus['previous_plan_type'])): ?>
+                    <p style="color: #e65100; font-size: 0.85rem; margin-top: 8px;">⚠️ Note: You have a pending plan change. Cancelling will cancel your current active <?= ucfirst($displayPlanStatus['plan_type']) ?> subscription.</p>
+                <?php endif; ?>
                 <form method="POST" action="<?= htmlspecialchars($formAction, ENT_QUOTES, 'UTF-8') ?>" onsubmit="return confirm('Are you sure you want to cancel your subscription?');" style="margin-top: 16px;">
                     <input type="hidden" name="action" value="cancel_charge">
                     <button type="submit" class="btn btn-danger">Cancel Subscription</button>
                 </form>
             </div>
         </div>
-    <?php elseif ($planStatus['plan_status'] === 'cancelled'): ?>
+    <?php elseif ($displayPlanStatus['plan_status'] === 'cancelled'): ?>
         <div class="card">
             <h2>Subscription Cancelled</h2>
             <p>Your subscription has been cancelled. You can upgrade again at any time.</p>
