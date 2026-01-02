@@ -94,23 +94,23 @@ if ($dateRange) {
         $endDate = date('Y-m-d H:i:s', $now);
         $dateRange = '24h'; // Force to 24h for free plans
     } else {
-        switch ($dateRange) {
-            case '24h':
-                $startDate = date('Y-m-d H:i:s', $now - 86400);
-                $endDate = date('Y-m-d H:i:s', $now);
-                break;
-            case '7d':
-                $startDate = date('Y-m-d H:i:s', $now - (7 * 86400));
-                $endDate = date('Y-m-d H:i:s', $now);
-                break;
-            case '14d':
-                $startDate = date('Y-m-d H:i:s', $now - (14 * 86400));
-                $endDate = date('Y-m-d H:i:s', $now);
-                break;
-            case '30d':
-                $startDate = date('Y-m-d H:i:s', $now - (30 * 86400));
-                $endDate = date('Y-m-d H:i:s', $now);
-                break;
+    switch ($dateRange) {
+        case '24h':
+            $startDate = date('Y-m-d H:i:s', $now - 86400);
+            $endDate = date('Y-m-d H:i:s', $now);
+            break;
+        case '7d':
+            $startDate = date('Y-m-d H:i:s', $now - (7 * 86400));
+            $endDate = date('Y-m-d H:i:s', $now);
+            break;
+        case '14d':
+            $startDate = date('Y-m-d H:i:s', $now - (14 * 86400));
+            $endDate = date('Y-m-d H:i:s', $now);
+            break;
+        case '30d':
+            $startDate = date('Y-m-d H:i:s', $now - (30 * 86400));
+            $endDate = date('Y-m-d H:i:s', $now);
+            break;
         }
     }
 } elseif ($startDate && $endDate) {
