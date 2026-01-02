@@ -149,6 +149,15 @@ if ($topic === 'recurring_application_charges/update' || $topic === 'recurring_a
         $planType = 'annual';
     }
     
+    // Check if this shop has a previous subscription (from a plan change)
+    $checkPreviousStmt = $db->prepare('SELECT previous_billing_charge_id, previous_plan_type, access_token FROM shops WHERE shop_domain = :shop LIMIT 1');
+    $checkPreviousStmt->execute(['shop' => $shop]);
+    $previousData = $checkPreviousStmt->fetch(PDO::FETCH_ASSOC);
+    
+    $hasPreviousSubscription = !empty($previousData['previous_billing_charge_id']) && 
+                               !empty($previousData['previous_plan_type']) &&
+                               $previousData['previous_billing_charge_id'] !== (string)$chargeId;
+    
     // Update shop's plan status based on charge status
     $planStatus = 'active';
     $statusLower = strtolower($status);
@@ -160,15 +169,46 @@ if ($topic === 'recurring_application_charges/update' || $topic === 'recurring_a
         $planStatus = 'pending';
     } elseif ($statusLower === 'active' || $statusLower === 'accepted') {
         $planStatus = 'active';
+        
+        // If this is a new subscription becoming active and there's a previous one, cancel the old one
+        if ($hasPreviousSubscription && !empty($previousData['access_token'])) {
+            require_once __DIR__ . '/../helpers/ShopifyClient.php';
+            
+            try {
+                $cancelResponse = ShopifyClient::cancelCharge($shop, $previousData['access_token'], $previousData['previous_billing_charge_id']);
+                if ($cancelResponse['status'] === 200) {
+                    error_log("Webhook: Successfully cancelled previous subscription for shop={$shop}, previous_charge_id={$previousData['previous_billing_charge_id']}");
+                } else {
+                    error_log("Webhook: Failed to cancel previous subscription for shop={$shop}, previous_charge_id={$previousData['previous_billing_charge_id']}, status={$cancelResponse['status']}");
+                }
+            } catch (Exception $e) {
+                error_log("Webhook: Exception cancelling previous subscription for shop={$shop}, error: " . $e->getMessage());
+            }
+        }
     }
     
-    $stmt = $db->prepare('
-        UPDATE shops 
-        SET plan_type = :plan_type,
-            plan_status = :plan_status,
-            billing_charge_id = :charge_id
-        WHERE shop_domain = :shop
-    ');
+    // Update the shop's subscription info
+    // If this is a new active subscription replacing an old one, clear the previous tracking
+    if ($hasPreviousSubscription && $planStatus === 'active') {
+        $stmt = $db->prepare('
+            UPDATE shops 
+            SET plan_type = :plan_type,
+                plan_status = :plan_status,
+                billing_charge_id = :charge_id,
+                previous_billing_charge_id = NULL,
+                previous_plan_type = NULL
+            WHERE shop_domain = :shop
+        ');
+    } else {
+        $stmt = $db->prepare('
+            UPDATE shops 
+            SET plan_type = :plan_type,
+                plan_status = :plan_status,
+                billing_charge_id = :charge_id
+            WHERE shop_domain = :shop
+        ');
+    }
+    
     $stmt->execute([
         'shop' => $shop,
         'plan_type' => $planType,
@@ -176,7 +216,7 @@ if ($topic === 'recurring_application_charges/update' || $topic === 'recurring_a
         'charge_id' => (string)$chargeId,
     ]);
     
-    error_log("Webhook processed: shop={$shop}, topic={$topic}, charge_id={$chargeId}, status={$status}, plan_type={$planType}, plan_status={$planStatus}");
+    error_log("Webhook processed: shop={$shop}, topic={$topic}, charge_id={$chargeId}, status={$status}, plan_type={$planType}, plan_status={$planStatus}" . ($hasPreviousSubscription ? ", cancelled_previous_charge_id={$previousData['previous_billing_charge_id']}" : ""));
     
     http_response_code(200);
     echo "OK";

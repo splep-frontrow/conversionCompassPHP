@@ -308,15 +308,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     } elseif ($_POST['action'] === 'cancel_pending') {
         // Pending subscriptions cannot be canceled via Shopify API
         // They expire automatically if not confirmed
-        // Just clear from our database
-        $updateStmt = $db->prepare('UPDATE shops SET plan_status = :status, plan_type = :plan_type, billing_charge_id = NULL WHERE shop_domain = :shop');
-        $updateStmt->execute([
-            'shop' => $shop,
-            'status' => 'cancelled',
-            'plan_type' => 'free',
-        ]);
+        // Restore the previous active subscription if this was a plan change
+        $stmt = $db->prepare('SELECT previous_billing_charge_id, previous_plan_type FROM shops WHERE shop_domain = :shop LIMIT 1');
+        $stmt->execute(['shop' => $shop]);
+        $previousData = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        error_log("subscription.php: Cleared pending subscription from database for shop: {$shop}. Pending subscription in Shopify will expire automatically if not confirmed.");
+        $hasPreviousSubscription = !empty($previousData['previous_billing_charge_id']) && !empty($previousData['previous_plan_type']);
+        
+        if ($hasPreviousSubscription) {
+            // Restore the previous active subscription
+            $updateStmt = $db->prepare('
+                UPDATE shops 
+                SET plan_status = :status,
+                    plan_type = :plan_type,
+                    billing_charge_id = :charge_id,
+                    previous_billing_charge_id = NULL,
+                    previous_plan_type = NULL
+                WHERE shop_domain = :shop
+            ');
+            $updateStmt->execute([
+                'shop' => $shop,
+                'status' => 'active',
+                'plan_type' => $previousData['previous_plan_type'],
+                'charge_id' => $previousData['previous_billing_charge_id'],
+            ]);
+            
+            error_log("subscription.php: Cancelled pending plan change and restored previous active subscription for shop: {$shop}, restored_plan: {$previousData['previous_plan_type']}, restored_charge_id: {$previousData['previous_billing_charge_id']}");
+        } else {
+            // No previous subscription, just clear the pending one
+            $updateStmt = $db->prepare('UPDATE shops SET plan_status = :status, plan_type = :plan_type, billing_charge_id = NULL, previous_billing_charge_id = NULL, previous_plan_type = NULL WHERE shop_domain = :shop');
+            $updateStmt->execute([
+                'shop' => $shop,
+                'status' => 'cancelled',
+                'plan_type' => 'free',
+            ]);
+            
+            error_log("subscription.php: Cleared pending subscription from database for shop: {$shop}. No previous subscription to restore.");
+        }
         
         header('Location: /subscription.php?shop=' . urlencode($shop));
         exit;
@@ -491,130 +519,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $error = $errorMessage;
             }
         } else {
-            // Active paid subscription - need to cancel existing and create new
-            if (empty($planStatus['billing_charge_id'])) {
-                // No active charge ID found, try to create new charge directly
-                $amount = $newPlanType === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
-                error_log("subscription.php: Change plan - no billing_charge_id found, creating new charge for shop: {$shop}, plan_type: {$newPlanType}, amount: {$amount}");
-                
-                $response = ShopifyClient::createRecurringCharge($shop, $accessToken, $amount, $newPlanType);
-                
-                // Handle confirmation URL
-                $confirmationUrl = null;
-                if ($response['status'] === 201 && isset($response['body']['recurring_application_charge']['confirmation_url'])) {
-                    $confirmationUrl = $response['body']['recurring_application_charge']['confirmation_url'];
-                } elseif ($response['status'] === 200 && isset($response['body']['recurring_application_charge']['confirmation_url'])) {
-                    $confirmationUrl = $response['body']['recurring_application_charge']['confirmation_url'];
+            // Active paid subscription - create new subscription first, keep old one active until confirmed
+            // This prevents losing the active subscription if the user cancels the pending change
+            $amount = $newPlanType === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
+            error_log("subscription.php: Change plan - creating new subscription for shop: {$shop}, plan_type: {$newPlanType}, amount: {$amount}. Current active subscription will remain active until new one is confirmed.");
+            
+            $response = ShopifyClient::createRecurringCharge($shop, $accessToken, $amount, $newPlanType);
+            
+            // Handle confirmation URL
+            $confirmationUrl = null;
+            $newChargeId = null;
+            if ($response['status'] === 201 && isset($response['body']['recurring_application_charge']['confirmation_url'])) {
+                $confirmationUrl = $response['body']['recurring_application_charge']['confirmation_url'];
+                $newChargeId = $response['body']['recurring_application_charge']['id'] ?? null;
+            } elseif ($response['status'] === 200 && isset($response['body']['recurring_application_charge']['confirmation_url'])) {
+                $confirmationUrl = $response['body']['recurring_application_charge']['confirmation_url'];
+                $newChargeId = $response['body']['recurring_application_charge']['id'] ?? null;
+            }
+            
+            if ($confirmationUrl && $newChargeId) {
+                // Extract numeric ID if it's a GID
+                if (str_starts_with($newChargeId, 'gid://')) {
+                    preg_match('/\/(\d+)$/', $newChargeId, $matches);
+                    $newChargeId = $matches[1] ?? $newChargeId;
                 }
                 
-                if ($confirmationUrl) {
-                    $pendingConfirmationUrl = $confirmationUrl;
-                    $successMessage = 'Redirecting you to Shopify to confirm the subscription...';
-                } else {
-                    // Extract error message from response (handle both REST and GraphQL formats)
-                    $errorMessage = 'Failed to create new subscription.';
-                    
-                    // Check for GraphQL userErrors
-                    if (isset($response['body']['data']['appSubscriptionCreate']['userErrors'])) {
-                        $userErrors = $response['body']['data']['appSubscriptionCreate']['userErrors'];
-                        $errorMessages = array_column($userErrors, 'message');
-                        $errorMessage .= ' ' . implode('. ', $errorMessages);
-                    }
-                    // Check for GraphQL errors
-                    elseif (isset($response['body']['errors'])) {
-                        $errors = $response['body']['errors'];
-                        $errorMessages = array_column($errors, 'message');
-                        $errorMessage .= ' ' . implode('. ', $errorMessages);
-                    }
-                    // Check for REST API errors
-                    elseif (isset($response['body']['error'])) {
-                        $errorMessage .= ' ' . $response['body']['error'];
-                    }
-                    
-                    $error = $errorMessage;
-                }
+                // Store the new pending subscription and preserve the old active one
+                // This allows us to restore it if the user cancels the pending change
+                $updateStmt = $db->prepare('
+                    UPDATE shops 
+                    SET plan_type = :new_plan_type,
+                        plan_status = :new_status,
+                        billing_charge_id = :new_charge_id,
+                        previous_billing_charge_id = :previous_charge_id,
+                        previous_plan_type = :previous_plan_type
+                    WHERE shop_domain = :shop
+                ');
+                $updateStmt->execute([
+                    'shop' => $shop,
+                    'new_plan_type' => $newPlanType,
+                    'new_status' => 'pending',
+                    'new_charge_id' => (string)$newChargeId,
+                    'previous_charge_id' => $planStatus['billing_charge_id'] ?? null,
+                    'previous_plan_type' => $planStatus['plan_type'] ?? null,
+                ]);
+                
+                $pendingConfirmationUrl = $confirmationUrl;
+                $successMessage = 'Your plan change is pending confirmation. Your current subscription will remain active until the new plan is confirmed. Redirecting you to Shopify to confirm...';
+                error_log("subscription.php: Change plan initiated - shop: {$shop}, new_plan: {$newPlanType}, new_charge_id: {$newChargeId}, previous_charge_id: " . ($planStatus['billing_charge_id'] ?? 'none') . ", previous_plan: " . ($planStatus['plan_type'] ?? 'none'));
             } else {
-                // Cancel existing charge first
-                error_log("subscription.php: Change plan - cancelling existing charge for shop: {$shop}, charge_id: {$planStatus['billing_charge_id']}");
-                $cancelResponse = ShopifyClient::cancelCharge($shop, $accessToken, $planStatus['billing_charge_id']);
+                // Extract error message from response (handle both REST and GraphQL formats)
+                $errorMessage = 'Failed to create new subscription.';
                 
-                if ($cancelResponse['status'] === 200) {
-                    // Successfully cancelled, now create new charge
-                    $amount = $newPlanType === 'annual' ? ANNUAL_PRICE : MONTHLY_PRICE;
-                    error_log("subscription.php: Change plan - creating new charge for shop: {$shop}, plan_type: {$newPlanType}, amount: {$amount}");
-                    
-                    $createResponse = ShopifyClient::createRecurringCharge($shop, $accessToken, $amount, $newPlanType);
-                    
-                    // Handle confirmation URL
-                    $confirmationUrl = null;
-                    if ($createResponse['status'] === 201 && isset($createResponse['body']['recurring_application_charge']['confirmation_url'])) {
-                        $confirmationUrl = $createResponse['body']['recurring_application_charge']['confirmation_url'];
-                    } elseif ($createResponse['status'] === 200 && isset($createResponse['body']['recurring_application_charge']['confirmation_url'])) {
-                        $confirmationUrl = $createResponse['body']['recurring_application_charge']['confirmation_url'];
-                    }
-                    
-                    if ($confirmationUrl) {
-                        $pendingConfirmationUrl = $confirmationUrl;
-                        $successMessage = 'Your current subscription has been cancelled. Redirecting you to confirm your new subscription...';
-                        error_log("subscription.php: Change plan successful, confirmation URL received: {$confirmationUrl}");
-                    } else {
-                        // Cancellation succeeded but creation failed
-                        $error = 'Your current subscription has been cancelled, but we were unable to create the new subscription. Please try again or contact support if the issue persists.';
-                        error_log("subscription.php: Change plan - cancellation succeeded but creation failed for shop: {$shop}");
-                        
-                        // Update database to reflect cancellation
-                        $updateStmt = $db->prepare('UPDATE shops SET plan_status = :status WHERE shop_domain = :shop');
-                        $updateStmt->execute([
-                            'shop' => $shop,
-                            'status' => 'cancelled',
-                        ]);
-                        
-                        // Extract detailed error message
-                        $errorDetails = '';
-                        // Check for GraphQL userErrors
-                        if (isset($createResponse['body']['data']['appSubscriptionCreate']['userErrors'])) {
-                            $userErrors = $createResponse['body']['data']['appSubscriptionCreate']['userErrors'];
-                            $errorMessages = array_column($userErrors, 'message');
-                            $errorDetails = ' Error: ' . implode('. ', $errorMessages);
-                        }
-                        // Check for GraphQL errors
-                        elseif (isset($createResponse['body']['errors'])) {
-                            $errors = $createResponse['body']['errors'];
-                            $errorMessages = array_column($errors, 'message');
-                            $errorDetails = ' Error: ' . implode('. ', $errorMessages);
-                        }
-                        // Check for REST API errors
-                        elseif (isset($createResponse['body']['error'])) {
-                            $errorDetails = ' Error: ' . $createResponse['body']['error'];
-                        }
-                        
-                        $error .= $errorDetails;
-                    }
-                    } else {
-                        // Cancellation failed
-                        $errorMessage = 'Unable to cancel your current subscription. Please try again or contact support.';
-                        error_log("subscription.php: Change plan - cancellation failed for shop: {$shop}, charge_id: {$planStatus['billing_charge_id']}");
-                        
-                        // Don't create new charge if cancellation failed
-                        // Check for GraphQL userErrors
-                        if (isset($cancelResponse['body']['data']['appSubscriptionCancel']['userErrors'])) {
-                            $userErrors = $cancelResponse['body']['data']['appSubscriptionCancel']['userErrors'];
-                            $errorMessages = array_column($userErrors, 'message');
-                            $errorMessage .= ' Error: ' . implode('. ', $errorMessages);
-                        }
-                        // Check for GraphQL errors
-                        elseif (isset($cancelResponse['body']['errors'])) {
-                            $errors = $cancelResponse['body']['errors'];
-                            $errorMessages = array_column($errors, 'message');
-                            $errorMessage .= ' Error: ' . implode('. ', $errorMessages);
-                        }
-                        // Check for REST API errors
-                        elseif (isset($cancelResponse['body']['error'])) {
-                            $errorMessage .= ' Error: ' . $cancelResponse['body']['error'];
-                        }
-                        
-                        $error = $errorMessage;
-                    }
+                // Check for GraphQL userErrors
+                if (isset($response['body']['data']['appSubscriptionCreate']['userErrors'])) {
+                    $userErrors = $response['body']['data']['appSubscriptionCreate']['userErrors'];
+                    $errorMessages = array_column($userErrors, 'message');
+                    $errorMessage .= ' ' . implode('. ', $errorMessages);
+                }
+                // Check for GraphQL errors
+                elseif (isset($response['body']['errors'])) {
+                    $errors = $response['body']['errors'];
+                    $errorMessages = array_column($errors, 'message');
+                    $errorMessage .= ' ' . implode('. ', $errorMessages);
+                }
+                // Check for REST API errors
+                elseif (isset($response['body']['error'])) {
+                    $errorMessage .= ' ' . $response['body']['error'];
+                }
+                
+                $error = $errorMessage;
             }
         }
     }

@@ -10,8 +10,8 @@ class SubscriptionHelper
     {
         $db = get_db();
         $stmt = $db->prepare('
-            SELECT plan_type, plan_status, billing_charge_id, admin_granted_free, 
-                   first_installed_at, last_reinstalled_at, last_used_at
+            SELECT plan_type, plan_status, billing_charge_id, previous_billing_charge_id, previous_plan_type,
+                   admin_granted_free, first_installed_at, last_reinstalled_at, last_used_at
             FROM shops 
             WHERE shop_domain = :shop 
             LIMIT 1
@@ -24,6 +24,8 @@ class SubscriptionHelper
                 'plan_type' => 'free',
                 'plan_status' => 'active',
                 'billing_charge_id' => null,
+                'previous_billing_charge_id' => null,
+                'previous_plan_type' => null,
                 'admin_granted_free' => false,
                 'first_installed_at' => null,
                 'last_reinstalled_at' => null,
