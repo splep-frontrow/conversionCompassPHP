@@ -258,14 +258,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     } elseif ($_POST['action'] === 'cancel_charge' && !empty($planStatus['billing_charge_id'])) {
         // Shopify API can only cancel ACTIVE subscriptions, not PENDING ones
         if ($planStatus['plan_status'] === 'pending') {
-            // For pending subscriptions, just clear from database
-            // Shopify will automatically expire pending subscriptions that aren't confirmed
-            $updateStmt = $db->prepare('UPDATE shops SET plan_status = :status, plan_type = :plan_type, billing_charge_id = NULL WHERE shop_domain = :shop');
-            $updateStmt->execute([
-                'shop' => $shop,
-                'status' => 'cancelled',
-                'plan_type' => 'free',
-            ]);
+            // For pending subscriptions, use cancel_pending logic instead
+            // Check if there's a previous subscription to restore
+            $stmt = $db->prepare('SELECT previous_billing_charge_id, previous_plan_type FROM shops WHERE shop_domain = :shop LIMIT 1');
+            $stmt->execute(['shop' => $shop]);
+            $previousData = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            $hasPreviousSubscription = !empty($previousData['previous_billing_charge_id']) && !empty($previousData['previous_plan_type']);
+            
+            if ($hasPreviousSubscription) {
+                // Restore the previous active subscription
+                $updateStmt = $db->prepare('
+                    UPDATE shops 
+                    SET plan_status = :status,
+                        plan_type = :plan_type,
+                        billing_charge_id = :charge_id,
+                        previous_billing_charge_id = NULL,
+                        previous_plan_type = NULL
+                    WHERE shop_domain = :shop
+                ');
+                $updateStmt->execute([
+                    'shop' => $shop,
+                    'status' => 'active',
+                    'plan_type' => $previousData['previous_plan_type'],
+                    'charge_id' => $previousData['previous_billing_charge_id'],
+                ]);
+                
+                error_log("subscription.php: Cancelled pending plan change via cancel_charge and restored previous active subscription for shop: {$shop}, restored_plan: {$previousData['previous_plan_type']}");
+            } else {
+                // No previous subscription - if this was created from free plan, restore to free/active
+                $updateStmt = $db->prepare('UPDATE shops SET plan_status = :status, plan_type = :plan_type, billing_charge_id = NULL, previous_billing_charge_id = NULL, previous_plan_type = NULL WHERE shop_domain = :shop');
+                $updateStmt->execute([
+                    'shop' => $shop,
+                    'status' => 'active',
+                    'plan_type' => 'free',
+                ]);
+                
+                error_log("subscription.php: Cancelled pending subscription via cancel_charge for shop: {$shop}, restored to free plan");
+            }
+            
             header('Location: /subscription.php?shop=' . urlencode($shop));
             exit;
         }
@@ -335,15 +366,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             
             error_log("subscription.php: Cancelled pending plan change and restored previous active subscription for shop: {$shop}, restored_plan: {$previousData['previous_plan_type']}, restored_charge_id: {$previousData['previous_billing_charge_id']}");
         } else {
-            // No previous subscription, just clear the pending one
+            // No previous subscription - restore to free/active (not cancelled)
+            // This handles the case where user creates subscription from free plan then cancels pending
             $updateStmt = $db->prepare('UPDATE shops SET plan_status = :status, plan_type = :plan_type, billing_charge_id = NULL, previous_billing_charge_id = NULL, previous_plan_type = NULL WHERE shop_domain = :shop');
             $updateStmt->execute([
                 'shop' => $shop,
-                'status' => 'cancelled',
+                'status' => 'active',
                 'plan_type' => 'free',
             ]);
             
-            error_log("subscription.php: Cleared pending subscription from database for shop: {$shop}. No previous subscription to restore.");
+            error_log("subscription.php: Cleared pending subscription from database for shop: {$shop}, restored to free/active plan");
         }
         
         header('Location: /subscription.php?shop=' . urlencode($shop));
